@@ -1,5 +1,10 @@
 /* API Key Manager page. Every class starts with "ak-" so it cannot clash. */
 
+.ak-loading {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
 .ak-notice {
   display: flex;
   align-items: flex-start;
@@ -7,10 +12,18 @@
   border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
 }
 
+.ak-notice[data-level="ok"] {
+  border-color: var(--border);
+}
+
 .ak-notice p {
   margin-top: 4px;
   font-size: 0.9rem;
   color: var(--text-muted);
+}
+
+.ak-notice .button {
+  margin-top: 10px;
 }
 
 .ak-notice-icon {
@@ -24,6 +37,21 @@
   color: var(--warn);
 }
 
+.ak-notice[data-level="ok"] .ak-notice-icon {
+  color: var(--accent-text);
+}
+
+.ak-code {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 55%, var(--surface));
+  font-size: 0.78rem;
+  color: var(--text);
+}
+
 .ak-tabs {
   display: flex;
   gap: 10px;
@@ -34,6 +62,9 @@
 
 .ak-tab {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 18px;
   border-radius: 12px;
   border: 1px solid var(--border);
@@ -51,6 +82,15 @@
   border-color: transparent;
   background: var(--grad-strong);
   color: #ffffff;
+}
+
+.ak-tab-count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.22);
+  font-size: 0.72rem;
+  text-align: center;
 }
 
 .ak-panel {
@@ -93,8 +133,195 @@
   gap: 10px;
 }
 
-.ak-actions .button:disabled {
+/* ---------- Add form ---------- */
+
+.ak-form {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(220px, 2fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.ak-field {
+  min-width: 0;
+}
+
+.ak-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.ak-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.ak-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ak-secret-row {
+  display: flex;
+  gap: 8px;
+}
+
+.ak-form .button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
   filter: none;
+}
+
+.ak-error {
+  font-size: 0.85rem;
+  color: var(--warn);
+}
+
+.ak-message {
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  font-size: 0.85rem;
+}
+
+.ak-message[data-kind="success"] {
+  border-color: color-mix(in srgb, #16a34a 65%, var(--border));
+}
+
+.ak-message[data-kind="error"] {
+  border-color: color-mix(in srgb, #ef4444 65%, var(--border));
+}
+
+/* ---------- Saved key rows ---------- */
+
+.ak-list {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+
+.ak-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 40%, var(--surface));
+}
+
+.ak-row[data-enabled="false"] .ak-row-main {
+  opacity: 0.6;
+}
+
+.ak-row-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ak-row-label {
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+.ak-masked {
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.ak-row-meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.ak-row-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ak-switch {
+  position: relative;
+  flex: none;
+  width: 42px;
+  height: 24px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+}
+
+.ak-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.15s ease;
+}
+
+.ak-switch[aria-checked="true"] {
+  border-color: transparent;
+  background: var(--grad-strong);
+}
+
+.ak-switch[aria-checked="true"]::after {
+  transform: translateX(18px);
+}
+
+.ak-switch:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ak-switch-text {
+  min-width: 54px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.ak-confirm {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.ak-danger {
+  border-color: transparent;
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.ak-danger:hover {
+  background: #dc2626;
+  filter: brightness(1.1);
+}
+
+@media (max-width: 760px) {
+  .ak-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
