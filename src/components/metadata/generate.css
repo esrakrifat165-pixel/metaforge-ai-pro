@@ -1,0 +1,105 @@
+/* Extra styles for generation, platform profiles and disabled settings.
+   Uses the same theme variables as the rest of the app. */
+
+.mw-tab {
+  text-decoration: none;
+}
+
+.mw-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mw-switch:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mw-toggle-row[data-disabled="true"] .mw-toggle-label,
+.mw-toggle-row[data-disabled="true"] .mw-toggle-hint {
+  opacity: 0.6;
+}
+
+.mw-key-status {
+  margin-top: 12px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.mw-key-status[data-level="warn"] {
+  color: var(--warn);
+}
+
+.mw-profile {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 55%, var(--surface));
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.mw-profile strong {
+  color: var(--text);
+}
+
+.mw-profile-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--warn);
+}
+
+.mw-profile-badge[data-level="ok"] {
+  color: var(--accent-text);
+}
+
+.mw-profile a {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.mw-progress {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.mw-progress progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--accent);
+}
+
+.mw-status {
+  margin-top: 6px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.mw-status[data-state="failed"] {
+  color: var(--warn);
+}
+
+.mw-status[data-state="done"] {
+  color: var(--accent-text);
+}
+
+.mw-warnings {
+  margin: 0 0 8px;
+  padding: 8px 12px 8px 28px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--warn) 60%, var(--border));
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  font-size: 0.8rem;
+}
