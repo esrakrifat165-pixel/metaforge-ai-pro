@@ -42,3 +42,5 @@ next-env.d.ts
 
 # Local encrypted key store
 .data/
+
+build-log.txt
