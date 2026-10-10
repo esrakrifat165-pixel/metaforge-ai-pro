@@ -1,32 +1,30 @@
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scryptSync } from "node:crypto";
-import { promises as fs } from "node:fs";
-import path from "node:path";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { MAX_KEYS_PER_PROVIDER, PROVIDERS, type ProviderId } from "../providers/catalog";
 import type { LastResult, PublicKey, StorageState } from "../keys/shared";
+import { getSupabaseEnv } from "../supabase/env";
 
 // SERVER ONLY. Never import this file from a client component.
 //
-// LOCAL DEVELOPMENT KEY STORE
-// Keys are encrypted with AES-256-GCM and saved in .data/api-keys.json.
-// The encryption key is derived from KEY_ENCRYPTION_SECRET in .env.local.
-// There is no sign-in yet, so this is for one person on one computer only.
-// It is switched off in production builds unless ALLOW_LOCAL_KEY_STORE=true.
+// Keys are encrypted with AES-256-GCM (secret: KEY_ENCRYPTION_SECRET) and stored in the
+// Supabase table public.api_keys. The table has row-level security and no policies, so
+// only the server, using SUPABASE_SERVICE_ROLE_KEY, can read or write it.
+// Callers must check admin rights before using listKeys/addKey/setEnabled/removeKey.
 
 type EncryptedSecret = { iv: string; tag: string; data: string };
 
-type StoredKey = {
+type PublicRow = {
   id: string;
   provider: ProviderId;
   label: string;
   last4: string;
   enabled: boolean;
-  createdAt: string;
-  lastResult: LastResult;
-  lastUsedAt: string | null;
-  secret: EncryptedSecret;
+  created_at: string;
+  last_result: LastResult;
+  last_used_at: string | null;
 };
 
-type Store = { version: 1; salt: string; keys: StoredKey[] };
+type SecretRow = PublicRow & { secret: EncryptedSecret };
 
 export type KeyResult<T> =
   | { ok: true; value: T }
@@ -40,8 +38,8 @@ export type CandidateResult =
 
 export class KeyStoreError extends Error {}
 
-const STORE_DIR = path.join(process.cwd(), ".data");
-const STORE_FILE = path.join(STORE_DIR, "api-keys.json");
+const TABLE = "api_keys";
+const PUBLIC_COLUMNS = "id,provider,label,last4,enabled,created_at,last_result,last_used_at";
 const ENV_NAMES: Partial<Record<ProviderId, string[]>> = {
   gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
 };
@@ -62,7 +60,11 @@ function isEncrypted(value: unknown): value is EncryptedSecret {
   );
 }
 
-function isStoredKey(value: unknown): value is StoredKey {
+function isLastResult(value: unknown): value is LastResult {
+  return value === null || value === "ok" || value === "rejected" || value === "rate_limited";
+}
+
+function isPublicRow(value: unknown): value is PublicRow {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
@@ -71,71 +73,86 @@ function isStoredKey(value: unknown): value is StoredKey {
     typeof value.label === "string" &&
     typeof value.last4 === "string" &&
     typeof value.enabled === "boolean" &&
-    typeof value.createdAt === "string" &&
-    (value.lastUsedAt === null || typeof value.lastUsedAt === "string") &&
-    (value.lastResult === null ||
-      value.lastResult === "ok" ||
-      value.lastResult === "rejected" ||
-      value.lastResult === "rate_limited") &&
-    isEncrypted(value.secret)
+    typeof value.created_at === "string" &&
+    isLastResult(value.last_result) &&
+    (value.last_used_at === null || typeof value.last_used_at === "string")
   );
 }
 
-function isStore(value: unknown): value is Store {
-  return (
-    isRecord(value) &&
-    value.version === 1 &&
-    typeof value.salt === "string" &&
-    Array.isArray(value.keys) &&
-    value.keys.every(isStoredKey)
-  );
+function isSecretRow(value: unknown): value is SecretRow {
+  return isPublicRow(value) && isRecord(value) && isEncrypted(value.secret);
 }
 
-/* ---------- Storage state ---------- */
+/* ---------- Configuration ---------- */
 
 function getSecret(): string | null {
   const value = (process.env.KEY_ENCRYPTION_SECRET ?? "").trim();
   return value.length >= 32 ? value : null;
 }
 
+function getServiceKey(): string | null {
+  const value = (
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    process.env.SUPABASE_SECRET_KEY ??
+    ""
+  ).trim();
+  return value.length > 0 ? value : null;
+}
+
 export function getStorageState(): StorageState {
-  const isHosted = Boolean(process.env.VERCEL);
-  const isProduction = process.env.NODE_ENV === "production";
-  if (isHosted || (isProduction && process.env.ALLOW_LOCAL_KEY_STORE !== "true")) {
-    return {
-      state: "unavailable",
-      message:
-        "Local encrypted key storage is only enabled while developing on your own computer (npm run dev). Hosted storage arrives with sign-in and a database in a later phase.",
-    };
+  const missing: string[] = [];
+  if (!getSupabaseEnv()) {
+    missing.push("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+  }
+  if (!getServiceKey()) {
+    missing.push("SUPABASE_SERVICE_ROLE_KEY");
   }
   if (!getSecret()) {
+    missing.push("KEY_ENCRYPTION_SECRET (at least 32 characters)");
+  }
+  if (missing.length > 0) {
     return {
       state: "missing_secret",
-      message:
-        "KEY_ENCRYPTION_SECRET is not set. Add a random value of at least 32 characters to .env.local, then restart the dev server.",
+      message: `Key storage is not configured. Missing: ${missing.join(", ")}. Add them to .env.local (local) or to Vercel Environment Variables (production), then restart or redeploy.`,
     };
   }
   return {
     state: "ready",
     message:
-      "Local encrypted storage is active. Keys are encrypted on this computer and are never sent back to the browser.",
+      "Keys are encrypted on the server and stored in your Supabase database. They are never sent back to the browser.",
   };
+}
+
+let cachedClient: SupabaseClient | null = null;
+
+function db(): SupabaseClient {
+  const env = getSupabaseEnv();
+  const serviceKey = getServiceKey();
+  if (!env || !serviceKey) {
+    throw new KeyStoreError("Key storage is not configured.");
+  }
+  if (!cachedClient) {
+    cachedClient = createClient(env.url, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return cachedClient;
 }
 
 /* ---------- Encryption ---------- */
 
-let keyCache: { secret: string; salt: string; key: Buffer } | null = null;
+let keyCache: { secret: string; key: Buffer } | null = null;
 
-function getCryptoKey(salt: string): Buffer | null {
+function getCryptoKey(): Buffer | null {
   const secret = getSecret();
   if (!secret) {
     return null;
   }
-  if (keyCache && keyCache.secret === secret && keyCache.salt === salt) {
+  if (keyCache && keyCache.secret === secret) {
     return keyCache.key;
   }
-  const key = scryptSync(secret, Buffer.from(salt, "base64"), 32);
-  keyCache = { secret, salt, key };
+  const key = scryptSync(secret, "metaforge-api-keys-v1", 32);
+  keyCache = { secret, key };
   return key;
 }
 
@@ -165,77 +182,35 @@ function decrypt(secret: EncryptedSecret, aad: string, key: Buffer): string | nu
   }
 }
 
-/* ---------- File access ---------- */
+/* ---------- Helpers ---------- */
 
-async function readStore(): Promise<Store | null> {
-  let text: string;
-  try {
-    text = await fs.readFile(STORE_FILE, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return null;
-    }
-    throw new KeyStoreError("The key file could not be read.");
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new KeyStoreError("The key file is damaged.");
-  }
-  if (!isStore(parsed)) {
-    throw new KeyStoreError("The key file has an unexpected format.");
-  }
-  return parsed;
-}
-
-async function writeStore(store: Store): Promise<void> {
-  try {
-    await fs.mkdir(STORE_DIR, { recursive: true });
-    const temp = `${STORE_FILE}.${process.pid}.tmp`;
-    await fs.writeFile(temp, JSON.stringify(store), { encoding: "utf8", mode: 0o600 });
-    await fs.rename(temp, STORE_FILE);
-  } catch {
-    throw new KeyStoreError("The key file could not be written.");
-  }
-}
-
-function newStore(): Store {
-  return { version: 1, salt: randomBytes(16).toString("base64"), keys: [] };
-}
-
-// One change at a time, even if several requests arrive together.
-type LockHolder = typeof globalThis & { __metaforgeKeyLock?: Promise<unknown> };
-
-function withLock<T>(task: () => Promise<T>): Promise<T> {
-  const holder = globalThis as LockHolder;
-  const previous = holder.__metaforgeKeyLock ?? Promise.resolve();
-  const run = previous.then(task, task);
-  holder.__metaforgeKeyLock = run.catch(() => undefined);
-  return run;
-}
-
-function toPublic(key: StoredKey): PublicKey {
+function toPublic(row: PublicRow): PublicKey {
   return {
-    id: key.id,
-    provider: key.provider,
-    label: key.label,
-    masked: "\u2022".repeat(12) + key.last4,
-    enabled: key.enabled,
-    createdAt: key.createdAt,
-    lastResult: key.lastResult,
-    lastUsedAt: key.lastUsedAt,
+    id: row.id,
+    provider: row.provider,
+    label: row.label,
+    masked: "\u2022".repeat(12) + row.last4,
+    enabled: row.enabled,
+    createdAt: row.created_at,
+    lastResult: row.last_result,
+    lastUsedAt: row.last_used_at,
   };
 }
 
 function notReady(): { ok: false; code: string; message: string; status: number } {
-  return {
-    ok: false,
-    code: "storage_unavailable",
-    message: getStorageState().message,
-    status: 503,
-  };
+  return { ok: false, code: "storage_unavailable", message: getStorageState().message, status: 503 };
+}
+
+async function fetchRows(provider: ProviderId): Promise<SecretRow[]> {
+  const { data, error } = await db()
+    .from(TABLE)
+    .select(`${PUBLIC_COLUMNS},secret`)
+    .eq("provider", provider);
+  const rows: unknown = data;
+  if (error || !Array.isArray(rows) || !rows.every(isSecretRow)) {
+    throw new KeyStoreError("The saved keys could not be read.");
+  }
+  return rows;
 }
 
 /* ---------- Public operations ---------- */
@@ -244,8 +219,15 @@ export async function listKeys(): Promise<PublicKey[]> {
   if (getStorageState().state !== "ready") {
     return [];
   }
-  const store = await readStore();
-  return (store?.keys ?? []).map(toPublic);
+  const { data, error } = await db()
+    .from(TABLE)
+    .select(PUBLIC_COLUMNS)
+    .order("created_at", { ascending: true });
+  const rows: unknown = data;
+  if (error || !Array.isArray(rows) || !rows.every(isPublicRow)) {
+    throw new KeyStoreError("The saved keys could not be read.");
+  }
+  return rows.map(toPublic);
 }
 
 export async function addKey(input: {
@@ -256,26 +238,56 @@ export async function addKey(input: {
   if (getStorageState().state !== "ready") {
     return notReady();
   }
+  const cryptoKey = getCryptoKey();
+  if (!cryptoKey) {
+    return notReady();
+  }
 
-  return withLock(async (): Promise<KeyResult<PublicKey>> => {
-    const store = (await readStore()) ?? newStore();
-    const cryptoKey = getCryptoKey(store.salt);
-    if (!cryptoKey) {
-      return notReady();
-    }
+  const sameProvider = await fetchRows(input.provider);
 
-    const sameProvider = store.keys.filter((key) => key.provider === input.provider);
-
-    if (sameProvider.length >= MAX_KEYS_PER_PROVIDER) {
+  if (sameProvider.length >= MAX_KEYS_PER_PROVIDER) {
+    return {
+      ok: false,
+      code: "limit_reached",
+      status: 409,
+      message: `You already have ${MAX_KEYS_PER_PROVIDER} keys for this provider. Remove one first.`,
+    };
+  }
+  if (sameProvider.some((row) => row.label.toLowerCase() === input.label.toLowerCase())) {
+    return {
+      ok: false,
+      code: "duplicate_label",
+      status: 409,
+      message: "A key with this label already exists for this provider. Choose a different label.",
+    };
+  }
+  for (const existing of sameProvider) {
+    if (decrypt(existing.secret, existing.id, cryptoKey) === input.apiKey) {
       return {
         ok: false,
-        code: "limit_reached",
+        code: "duplicate_key",
         status: 409,
-        message: `You already have ${MAX_KEYS_PER_PROVIDER} keys for this provider. Remove one first.`,
+        message: `This key is already saved as "${existing.label}".`,
       };
     }
+  }
 
-    if (sameProvider.some((key) => key.label.toLowerCase() === input.label.toLowerCase())) {
+  const id = randomUUID();
+  const { data, error } = await db()
+    .from(TABLE)
+    .insert({
+      id,
+      provider: input.provider,
+      label: input.label,
+      last4: input.apiKey.slice(-4),
+      enabled: true,
+      secret: encrypt(input.apiKey, id, cryptoKey),
+    })
+    .select(PUBLIC_COLUMNS)
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
       return {
         ok: false,
         code: "duplicate_label",
@@ -283,68 +295,59 @@ export async function addKey(input: {
         message: "A key with this label already exists for this provider. Choose a different label.",
       };
     }
-
-    for (const existing of sameProvider) {
-      if (decrypt(existing.secret, existing.id, cryptoKey) === input.apiKey) {
-        return {
-          ok: false,
-          code: "duplicate_key",
-          status: 409,
-          message: `This key is already saved as "${existing.label}".`,
-        };
-      }
+    if (error.message.includes("KEY_LIMIT")) {
+      return {
+        ok: false,
+        code: "limit_reached",
+        status: 409,
+        message: `You already have ${MAX_KEYS_PER_PROVIDER} keys for this provider. Remove one first.`,
+      };
     }
+    throw new KeyStoreError("The key could not be saved.");
+  }
 
-    const id = randomUUID();
-    const stored: StoredKey = {
-      id,
-      provider: input.provider,
-      label: input.label,
-      last4: input.apiKey.slice(-4),
-      enabled: true,
-      createdAt: new Date().toISOString(),
-      lastResult: null,
-      lastUsedAt: null,
-      secret: encrypt(input.apiKey, id, cryptoKey),
-    };
-
-    store.keys.push(stored);
-    await writeStore(store);
-    return { ok: true, value: toPublic(stored) };
-  });
+  const row: unknown = data;
+  if (!isPublicRow(row)) {
+    throw new KeyStoreError("The key was saved but the answer was unexpected.");
+  }
+  return { ok: true, value: toPublic(row) };
 }
 
 export async function setEnabled(id: string, enabled: boolean): Promise<KeyResult<PublicKey>> {
   if (getStorageState().state !== "ready") {
     return notReady();
   }
-
-  return withLock(async (): Promise<KeyResult<PublicKey>> => {
-    const store = await readStore();
-    const entry = store?.keys.find((key) => key.id === id);
-    if (!store || !entry) {
-      return { ok: false, code: "not_found", status: 404, message: "That key no longer exists." };
-    }
-    entry.enabled = enabled;
-    await writeStore(store);
-    return { ok: true, value: toPublic(entry) };
-  });
+  const { data, error } = await db()
+    .from(TABLE)
+    .update({ enabled })
+    .eq("id", id)
+    .select(PUBLIC_COLUMNS)
+    .maybeSingle();
+  if (error) {
+    throw new KeyStoreError("The key could not be updated.");
+  }
+  const row: unknown = data;
+  if (row === null || row === undefined) {
+    return { ok: false, code: "not_found", status: 404, message: "That key no longer exists." };
+  }
+  if (!isPublicRow(row)) {
+    throw new KeyStoreError("The update answer was unexpected.");
+  }
+  return { ok: true, value: toPublic(row) };
 }
 
 export async function removeKey(id: string): Promise<KeyResult<true>> {
   if (getStorageState().state !== "ready") {
     return notReady();
   }
-
-  return withLock(async (): Promise<KeyResult<true>> => {
-    const store = await readStore();
-    if (!store || !store.keys.some((key) => key.id === id)) {
-      return { ok: false, code: "not_found", status: 404, message: "That key no longer exists." };
-    }
-    store.keys = store.keys.filter((key) => key.id !== id);
-    await writeStore(store);
-    return { ok: true, value: true };
-  });
+  const { data, error } = await db().from(TABLE).delete().eq("id", id).select("id");
+  if (error) {
+    throw new KeyStoreError("The key could not be removed.");
+  }
+  if (!Array.isArray(data) || data.length === 0) {
+    return { ok: false, code: "not_found", status: 404, message: "That key no longer exists." };
+  }
+  return { ok: true, value: true };
 }
 
 /** Records what really happened the last time a stored key was used. */
@@ -356,16 +359,13 @@ export async function recordKeyResult(
     return;
   }
   try {
-    await withLock(async () => {
-      const store = await readStore();
-      const entry = store?.keys.find((key) => key.id === id);
-      if (!store || !entry) {
-        return;
-      }
-      entry.lastResult = result;
-      entry.lastUsedAt = new Date().toISOString();
-      await writeStore(store);
-    });
+    const { error } = await db()
+      .from(TABLE)
+      .update({ last_result: result, last_used_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) {
+      console.error("[key-store] could not record the result of a key");
+    }
   } catch {
     console.error("[key-store] could not record the result of a key");
   }
@@ -373,14 +373,14 @@ export async function recordKeyResult(
 
 /* ---------- Choosing keys for an AI request ---------- */
 
-function failureRank(key: StoredKey): number {
-  if (key.lastResult === "rejected") {
+function failureRank(row: SecretRow): number {
+  if (row.last_result === "rejected") {
     return 2;
   }
   if (
-    key.lastResult === "rate_limited" &&
-    key.lastUsedAt !== null &&
-    Date.now() - Date.parse(key.lastUsedAt) < RECENT_FAILURE_MS
+    row.last_result === "rate_limited" &&
+    row.last_used_at !== null &&
+    Date.now() - Date.parse(row.last_used_at) < RECENT_FAILURE_MS
   ) {
     return 1;
   }
@@ -400,27 +400,27 @@ function readEnvCandidates(provider: ProviderId): Candidate[] {
 /**
  * Keys the server may use for this provider, in the order to try them.
  * - If any keys are saved for the provider, only ENABLED saved keys are used.
- *   If all are disabled, nothing is used (the .env.local key is NOT a back door).
- * - If none are saved, the key from .env.local is used when it exists.
+ *   If all are disabled, nothing is used (the environment key is NOT a back door).
+ * - If none are saved, the environment key is used when it exists (Gemini only for now).
  */
 export async function getCandidates(provider: ProviderId): Promise<CandidateResult> {
   const providerName = PROVIDERS.find((entry) => entry.id === provider)?.name ?? provider;
 
   if (getStorageState().state === "ready") {
-    let store: Store | null;
+    let stored: SecretRow[];
     try {
-      store = await readStore();
+      stored = await fetchRows(provider);
     } catch {
       return {
         ok: false,
         code: "key_store_error",
-        message: "The saved key file could not be read. Check the .data folder.",
+        message:
+          "The saved keys could not be read. Check that the api_keys SQL was run and that SUPABASE_SERVICE_ROLE_KEY is correct.",
       };
     }
 
-    const stored = (store?.keys ?? []).filter((key) => key.provider === provider);
-    if (store && stored.length > 0) {
-      const enabled = stored.filter((key) => key.enabled);
+    if (stored.length > 0) {
+      const enabled = stored.filter((row) => row.enabled);
       if (enabled.length === 0) {
         return {
           ok: false,
@@ -429,25 +429,25 @@ export async function getCandidates(provider: ProviderId): Promise<CandidateResu
         };
       }
 
-      const cryptoKey = getCryptoKey(store.salt);
+      const cryptoKey = getCryptoKey();
       if (!cryptoKey) {
         return {
           ok: false,
           code: "key_store_error",
-          message: "The key encryption secret is missing. Check KEY_ENCRYPTION_SECRET in .env.local.",
+          message: "KEY_ENCRYPTION_SECRET is missing on the server.",
         };
       }
 
       const ordered = [...enabled].sort((a, b) => {
         const rank = failureRank(a) - failureRank(b);
-        return rank !== 0 ? rank : Date.parse(a.createdAt) - Date.parse(b.createdAt);
+        return rank !== 0 ? rank : Date.parse(a.created_at) - Date.parse(b.created_at);
       });
 
       const candidates: Candidate[] = [];
-      for (const key of ordered) {
-        const apiKey = decrypt(key.secret, key.id, cryptoKey);
+      for (const row of ordered) {
+        const apiKey = decrypt(row.secret, row.id, cryptoKey);
         if (apiKey) {
-          candidates.push({ id: key.id, label: key.label, apiKey });
+          candidates.push({ id: row.id, label: row.label, apiKey });
         }
       }
 
@@ -471,6 +471,6 @@ export async function getCandidates(provider: ProviderId): Promise<CandidateResu
   return {
     ok: false,
     code: "not_configured",
-    message: `No ${providerName} API key is available. Add one in the API Key Manager, or set it in .env.local and restart the dev server.`,
+    message: `No ${providerName} API key is available. Add one in the API Key Manager, or set it as an environment variable.`,
   };
 }

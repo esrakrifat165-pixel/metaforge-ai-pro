@@ -1,9 +1,11 @@
+import { adminApiGuard } from "../../../lib/auth/session";
 import { MAX_KEYS_PER_PROVIDER, PROVIDERS, type ProviderId } from "../../../lib/providers/catalog";
 import { validateApiKey, validateLabel } from "../../../lib/keys/shared";
 import { addKey, getStorageState, listKeys, removeKey, setEnabled } from "../../../lib/server/keyStore";
 import { checkRateLimit } from "../../../lib/server/rateLimit";
 
 // Responses NEVER include a saved secret. Only masked values are returned.
+// Every request needs a signed-in admin (checked on the server).
 
 const ID_PATTERN = /^[0-9a-fA-F-]{36}$/;
 
@@ -15,37 +17,29 @@ function fail(status: number, code: string, message: string): Response {
   return reply({ success: false, code, message }, status);
 }
 
-function isLocalHost(request: Request): boolean {
-  const host = (request.headers.get("host") ?? "").toLowerCase();
-  const name = host.startsWith("[") ? host.slice(0, host.indexOf("]") + 1) : host.split(":")[0];
-  return name === "localhost" || name === "127.0.0.1" || name === "[::1]";
-}
-
 function isSameOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
   if (!origin) {
     return true;
   }
   try {
-    const host = request.headers.get("host");
-    return host === null ? false : new URL(origin).host === host;
+    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+    return host !== null && new URL(origin).host === host;
   } catch {
     return false;
   }
 }
 
-function guard(request: Request): Response | null {
-  if (!isLocalHost(request)) {
-    return fail(403, "forbidden", "The API Key Manager can only be used from this computer (localhost).");
-  }
+async function guard(request: Request): Promise<Response | null> {
   if (!isSameOrigin(request)) {
     return fail(403, "forbidden", "This request was not allowed.");
   }
-  const limit = checkRateLimit("api-keys:local", 120, 60_000);
+  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const limit = checkRateLimit(`api-keys:${client}`, 120, 60_000);
   if (!limit.allowed) {
     return fail(429, "rate_limited", "Too many requests. Please wait a moment.");
   }
-  return null;
+  return adminApiGuard();
 }
 
 async function readBody(request: Request): Promise<Record<string, unknown> | null> {
@@ -66,7 +60,7 @@ function asProviderId(value: unknown): ProviderId | null {
 }
 
 export async function GET(request: Request): Promise<Response> {
-  const blocked = guard(request);
+  const blocked = await guard(request);
   if (blocked) {
     return blocked;
   }
@@ -84,7 +78,8 @@ export async function GET(request: Request): Promise<Response> {
       success: true,
       storage: {
         state: "error",
-        message: "The saved key file could not be read. Check the .data folder.",
+        message:
+          "The saved keys could not be read. Check that the api_keys SQL was run in Supabase and that SUPABASE_SERVICE_ROLE_KEY is correct.",
       },
       limit: MAX_KEYS_PER_PROVIDER,
       keys: [],
@@ -93,7 +88,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const blocked = guard(request);
+  const blocked = await guard(request);
   if (blocked) {
     return blocked;
   }
@@ -127,12 +122,12 @@ export async function POST(request: Request): Promise<Response> {
     }
     return reply({ success: true, key: result.value }, 201);
   } catch {
-    return fail(500, "storage_error", "The key could not be saved. Check the .data folder and try again.");
+    return fail(500, "storage_error", "The key could not be saved. Check the Supabase setup and try again.");
   }
 }
 
 export async function PATCH(request: Request): Promise<Response> {
-  const blocked = guard(request);
+  const blocked = await guard(request);
   if (blocked) {
     return blocked;
   }
@@ -154,7 +149,7 @@ export async function PATCH(request: Request): Promise<Response> {
 }
 
 export async function DELETE(request: Request): Promise<Response> {
-  const blocked = guard(request);
+  const blocked = await guard(request);
   if (blocked) {
     return blocked;
   }
