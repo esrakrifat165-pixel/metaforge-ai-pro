@@ -1,31 +1,13 @@
-// Small helpers for sign-in rules. Server-side use only for the email list.
+import type { NextRequest } from "next/server";
+import { updateSession } from "./lib/supabase/proxy";
 
-/** Emails allowed to use the app. Server-only setting. Empty means NOBODY is allowed. */
-export function getAllowedEmails(): string[] {
-  return (process.env.ALLOWED_EMAILS ?? "")
-    .split(",")
-    .map((email) => email.trim().toLowerCase())
-    .filter((email) => email.length > 0);
+export async function proxy(request: NextRequest) {
+  return updateSession(request);
 }
 
-export function isEmailAllowed(email: string | null | undefined): boolean {
-  if (!email) {
-    return false;
-  }
-  return getAllowedEmails().includes(email.trim().toLowerCase());
-}
-
-/** Only allows internal paths, so a login link can never send someone to another website. */
-export function safeNextPath(value: string | null | undefined): string {
-  if (
-    typeof value === "string" &&
-    value.startsWith("/") &&
-    !value.startsWith("//") &&
-    !value.includes("\\") &&
-    !value.startsWith("/login") &&
-    !value.startsWith("/auth")
-  ) {
-    return value;
-  }
-  return "/dashboard";
-}
+export const config = {
+  // Skips Next.js internals and static image files (including the public logo).
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|brand/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+  ],
+};
