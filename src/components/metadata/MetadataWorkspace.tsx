@@ -31,6 +31,7 @@ import {
   MAX_FILE_MB,
   NO_EDITING,
   buildCsv,
+  fileExtension,
   fingerprint,
   getFieldStats,
   parseKeywords,
@@ -175,6 +176,15 @@ function Toggle({ id, label, hint, checked, disabled = false, onChange }: Toggle
   );
 }
 
+// Browsers only show an SVG in an <img> when its type is image/svg+xml. An <img>
+// never runs scripts that are inside an SVG.
+function previewSource(file: File): Blob {
+  if (fileExtension(file.name) === ".svg" && file.type !== "image/svg+xml") {
+    return new Blob([file], { type: "image/svg+xml" });
+  }
+  return file;
+}
+
 export function MetadataWorkspace() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -313,15 +323,18 @@ export function MetadataWorkspace() {
     let overflow = 0;
 
     for (const file of incoming) {
-      const lowerName = file.name.toLowerCase();
-      if (/\.(eps|ai|ps)$/.test(lowerName)) {
+      const extension = fileExtension(file.name);
+      const isSvg = extension === ".svg" || file.type === "image/svg+xml";
+      if (extension === ".eps" || extension === ".ai" || extension === ".ps") {
         problems.push(
-          `${file.name}: EPS and AI files cannot be previewed in the browser. Convert them to JPG first (the converter arrives in Phase 7).`,
+          `${file.name}: EPS and AI files cannot be rendered yet because no server-side renderer is installed. Export the file as SVG, PNG or JPG.`,
         );
         continue;
       }
-      if (!ACCEPTED_TYPES.includes(file.type)) {
-        problems.push(`${file.name}: unsupported file type. Use JPG, PNG or WEBP.`);
+      // SVG files are checked by content when the image is prepared, because browsers
+      // often report a missing or unusual type for them.
+      if (!isSvg && !ACCEPTED_TYPES.includes(file.type)) {
+        problems.push(`${file.name}: unsupported file type. Use JPG, PNG, WEBP or SVG.`);
         continue;
       }
       if (file.size === 0) {
@@ -345,7 +358,7 @@ export function MetadataWorkspace() {
       accepted.push({
         id: `image-${idCounter.current}`,
         file,
-        url: URL.createObjectURL(file),
+        url: URL.createObjectURL(previewSource(file)),
       });
       known.add(print);
       room -= 1;
@@ -677,7 +690,7 @@ export function MetadataWorkspace() {
         type="file"
         hidden
         multiple
-        accept={ACCEPT_ATTRIBUTE}
+        accept={`${ACCEPT_ATTRIBUTE},.svg,image/svg+xml`}
         onChange={handleInputChange}
       />
 
@@ -758,8 +771,8 @@ export function MetadataWorkspace() {
                 </span>
                 <p className="mw-drop-title">Drag &amp; Drop Images here</p>
                 <p className="mw-drop-hint">
-                  JPG, PNG, WEBP (max {MAX_FILES} files, {MAX_FILE_MB} MB each). EPS and AI files
-                  must be converted to JPG first.
+                  JPG, PNG, WEBP, SVG (max {MAX_FILES} files, {MAX_FILE_MB} MB each). EPS and AI
+                  files are not supported yet; export them as SVG, PNG or JPG.
                 </p>
                 <button type="button" className="mw-select-files" onClick={openPicker}>
                   <ToolIcon name="image" size={16} />
@@ -1179,6 +1192,117 @@ export function MetadataWorkspace() {
               />
             )}
           </section>
+
+          {items.length > 0 && resultTab === "metadata" ? (
+            <section className="mw-card" aria-labelledby="mw-all-title">
+              <div className="mw-card-head">
+                <h2 id="mw-all-title" className="mw-card-title">
+                  All Image Results
+                </h2>
+                <span className="mw-rc-summary">
+                  {items.length} images - {counts.done} done, {counts.failed} failed
+                  {counts.active > 0 ? `, ${counts.active} waiting` : ""}
+                </span>
+              </div>
+              <div className="mw-rc-list">
+                {items.map((item, index) => {
+                  const m = metaById[item.id] ?? EMPTY_META;
+                  const state = queue.statuses[item.id];
+                  const keywordTotal = parseKeywords(m.keywords).length;
+                  let label = "Not generated";
+                  let tone = "idle";
+                  if (state?.state === "processing") {
+                    label = "Processing";
+                    tone = "processing";
+                  } else if (state?.state === "queued") {
+                    label = "Waiting";
+                    tone = "queued";
+                  } else if (state?.state === "failed") {
+                    label = "Failed";
+                    tone = "failed";
+                  } else if (m.title.trim() || keywordTotal > 0) {
+                    label = "Completed";
+                    tone = "done";
+                  }
+                  return (
+                    <article
+                      key={item.id}
+                      className="mw-rc"
+                      data-selected={current?.id === item.id ? "true" : "false"}
+                    >
+                      <button
+                        type="button"
+                        className="mw-rc-top"
+                        aria-label={`Select image ${index + 1}, ${item.file.name}`}
+                        onClick={() => selectById(item.id)}
+                      >
+                        <span className="mw-rc-name">
+                          {index + 1}. {item.file.name}
+                        </span>
+                        <span className="mw-rc-badge" data-tone={tone}>
+                          {label}
+                        </span>
+                      </button>
+
+                      {tone === "failed" && state?.message ? (
+                        <p className="mw-rc-error" role="alert">
+                          {state.message}
+                        </p>
+                      ) : null}
+
+                      <div className="mw-rc-block">
+                        <span className="mw-rc-label">Title</span>
+                        <p className="mw-rc-text">{m.title || "No title yet"}</p>
+                      </div>
+                      <div className="mw-rc-block">
+                        <span className="mw-rc-label">Description</span>
+                        <p className="mw-rc-text">{m.description || "No description yet"}</p>
+                      </div>
+                      <div className="mw-rc-block">
+                        <span className="mw-rc-label">Keywords</span>
+                        <p className="mw-rc-text">{m.keywords || "No keywords yet"}</p>
+                      </div>
+
+                      <div className="mw-rc-foot">
+                        <span className="mw-rc-count">
+                          {keywordTotal}/{effectiveCount} keywords - title {m.title.length} chars -
+                          description {m.description.length} chars
+                        </span>
+                        <span className="mw-rc-actions">
+                          <button type="button" className="mw-mini" onClick={() => selectById(item.id)}>
+                            Open in editor
+                          </button>
+                          <button
+                            type="button"
+                            className="mw-mini"
+                            onClick={() => {
+                              if (!(m.title.trim() || m.description.trim() || m.keywords.trim())) {
+                                showNotice("info", "That image has no metadata to copy yet.");
+                                return;
+                              }
+                              navigator.clipboard
+                                .writeText(`${m.title}\n\n${m.description}\n\n${m.keywords}`)
+                                .then(
+                                  () => showNotice("success", `Copied the metadata for ${item.file.name}.`),
+                                  () => showNotice("error", "Copy failed. Your browser blocked clipboard access."),
+                                );
+                            }}
+                          >
+                            Copy all
+                          </button>
+                          {tone === "failed" && !queue.running ? (
+                            <button type="button" className="mw-mini" onClick={() => void runGeneration([item])}>
+                              Retry
+                            </button>
+                          ) : null}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
 
           <div className="mw-bottom">
             <div role="status" aria-live="polite">
