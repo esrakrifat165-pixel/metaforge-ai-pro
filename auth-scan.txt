@@ -1,0 +1,1433 @@
+﻿AUTH SCAN
+
+=== 1. Lines mentioning profile, role or session ===
+src\app\(app)\admin\page.tsx:28  description={`${access.message} The admin panel needs sign-in and the profiles table to check who is an administrator.`}
+src\app\(app)\admin\page.tsx:35  if (access.role !== "admin") {
+src\app\(app)\admin\page.tsx:41  description="Your account does not have the admin role. Only an administrator can open this page."
+src\app\(app)\admin\page.tsx:98  Administrator
+src\app\(app)\help\page.tsx:332  Administrators: set NEXT_PUBLIC_SUPPORT_EMAIL and/or NEXT_PUBLIC_SUPPORT_URL (https only) in the environment,
+src\app\(app)\settings\api-keys\page.tsx:36  if (access.role !== "admin") {
+src\app\(app)\settings\api-keys\page.tsx:42  description="Only an administrator can manage API keys."
+src\app\(app)\layout.tsx:7  const user = access.ok ? { email: access.email, role: access.role } : null;
+src\components\AppShell.tsx:36  ? user.role === "admin"
+src\components\AppShell.tsx:37  ? "Administrator"
+src\components\AppShell.tsx:50  isAdmin={user?.role === "admin"}
+src\components\AppShell.tsx:91  <span className="user-avatar" aria-hidden="true">
+src\lib\auth\session.ts:61  role: data?.role === "admin" ? "admin" : "user",
+src\lib\auth\session.ts:84  if (access.role !== "admin") {
+src\lib\navigation.ts:17  /** Shown in the sidebar only for administrators. */
+src\lib\navigation.ts:147  description: "Administrator tools. Available to authorized administrators only.",
+
+=== 2. Lines mentioning logout or sign out ===
+src\app\auth\signout\route.ts:7  await supabase.auth.signOut();
+src\components\Icons.tsx:27  | "logout"
+src\components\Icons.tsx:155  logout: (
+src\components\Sidebar.tsx:73  <form action="/auth/signout" method="post">
+src\components\Sidebar.tsx:75  <Icon name="logout" />
+src\components\Sidebar.tsx:76  <span>Logout</span>
+src\components\Sidebar.tsx:87  <Icon name="logout" />
+src\components\Sidebar.tsx:88  <span>Logout</span>
+
+=== 3. All page and route files ===
+src\app\(app)\admin\page.tsx  7276 bytes
+src\app\(app)\bento-builder\page.tsx  264 bytes
+src\app\(app)\calendar\page.tsx  280 bytes
+src\app\(app)\dashboard\page.tsx  3973 bytes
+src\app\(app)\eps-converter\page.tsx  287 bytes
+src\app\(app)\help\page.tsx  12189 bytes
+src\app\(app)\history\page.tsx  983 bytes
+src\app\(app)\image-to-prompt\page.tsx  393 bytes
+src\app\(app)\image-to-psd\page.tsx  253 bytes
+src\app\(app)\metadata\page.tsx  359 bytes
+src\app\(app)\settings\api-keys\page.tsx  1422 bytes
+src\app\(app)\settings\page.tsx  16330 bytes
+src\app\(app)\[tool]\page.tsx  3501 bytes
+src\app\(app)\layout.tsx  407 bytes
+src\app\api\adobe-keywords-search\route.ts  2978 bytes
+src\app\api\api-keys\route.ts  5568 bytes
+src\app\api\convert-eps\route.ts  6035 bytes
+src\app\api\generate-metadata\route.ts  4011 bytes
+src\app\api\generate-prompt\route.ts  3833 bytes
+src\app\api\history\route.ts  3073 bytes
+src\app\api\provider-status\route.ts  551 bytes
+src\app\auth\callback\route.ts  710 bytes
+src\app\auth\google\route.ts  816 bytes
+src\app\auth\signout\route.ts  357 bytes
+src\app\login\page.tsx  1775 bytes
+src\app\layout.tsx  1252 bytes
+src\app\page.tsx  109 bytes
+
+=== 4. Environment variable NAMES (no values) ===
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+GEMINI_API_KEY
+KEY_ENCRYPTION_SECRET
+KEY_ENCRYPTION_SECRET
+ALLOWED_EMAILS
+SUPABASE_SERVICE_ROLE_KEY
+KEY_ENCRYPTION_SECRET
+KEY_ENCRYPTION_SECRET
+
+=== 5. Source of the auth files (first 150 lines each) ===
+
+----- FILE: src\proxy.ts -----
+   1: import type { NextRequest } from "next/server";
+   2: import { updateSession } from "./lib/supabase/proxy";
+   3: 
+   4: export async function proxy(request: NextRequest) {
+   5:   return updateSession(request);
+   6: }
+   7: 
+   8: export const config = {
+   9:   // Skips Next.js internals and static image files (including the public logo).
+  10:   matcher: [
+  11:     "/((?!_next/static|_next/image|favicon.ico|brand/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+  12:   ],
+  13: };
+
+----- FILE: src\lib\supabase\proxy.ts -----
+   1: import { createServerClient } from "@supabase/ssr";
+   2: import { NextResponse, type NextRequest } from "next/server";
+   3: import { isEmailAllowed } from "../auth/guards";
+   4: import { getSupabaseEnv } from "./env";
+   5: 
+   6: // Runs before every page and API request (see src/proxy.ts).
+   7: // - Keeps the sign-in session fresh.
+   8: // - Sends signed-out visitors to /login, and answers API calls with 401.
+   9: // - Blocks signed-in accounts that are not on the ALLOWED_EMAILS list.
+  10: // If Supabase is not configured at all, everything passes through unchanged.
+  11: 
+  12: const PUBLIC_PREFIXES = ["/login", "/auth"];
+  13: 
+  14: function isPublic(path: string): boolean {
+  15:   return PUBLIC_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+  16: }
+  17: 
+  18: function copyCookies(from: NextResponse, to: NextResponse): void {
+  19:   from.cookies.getAll().forEach((cookie) => {
+  20:     to.cookies.set(cookie);
+  21:   });
+  22: }
+  23: 
+  24: function deny(
+  25:   request: NextRequest,
+  26:   response: NextResponse,
+  27:   reason: "login" | "not_allowed",
+  28: ): NextResponse {
+  29:   const path = request.nextUrl.pathname;
+  30:   let result: NextResponse;
+  31: 
+  32:   if (path.startsWith("/api/")) {
+  33:     result =
+  34:       reason === "login"
+  35:         ? NextResponse.json(
+  36:             { success: false, code: "unauthenticated", message: "Please sign in." },
+  37:             { status: 401 },
+  38:           )
+  39:         : NextResponse.json(
+  40:             { success: false, code: "not_allowed", message: "This account is not allowed to use the app." },
+  41:             { status: 403 },
+  42:           );
+  43:   } else {
+  44:     const url = request.nextUrl.clone();
+  45:     url.pathname = "/login";
+  46:     url.search = "";
+  47:     if (reason === "login") {
+  48:       url.searchParams.set("next", `${path}${request.nextUrl.search}`);
+  49:     } else {
+  50:       url.searchParams.set("error", "not_allowed");
+  51:     }
+  52:     result = NextResponse.redirect(url);
+  53:   }
+  54: 
+  55:   copyCookies(response, result);
+  56:   result.headers.set("Cache-Control", "no-store");
+  57:   return result;
+  58: }
+  59: 
+  60: export async function updateSession(request: NextRequest): Promise<NextResponse> {
+  61:   const env = getSupabaseEnv();
+  62:   if (!env) {
+  63:     return NextResponse.next({ request });
+  64:   }
+  65: 
+  66:   let response = NextResponse.next({ request });
+  67: 
+  68:   const supabase = createServerClient(env.url, env.publishableKey, {
+  69:     cookies: {
+  70:       getAll() {
+  71:         return request.cookies.getAll();
+  72:       },
+  73:       setAll(cookiesToSet, headers?: Record<string, string>) {
+  74:         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+  75:         response = NextResponse.next({ request });
+  76:         cookiesToSet.forEach(({ name, value, options }) =>
+  77:           response.cookies.set(name, value, options),
+  78:         );
+  79:         if (headers) {
+  80:           Object.entries(headers).forEach(([key, value]) => response.headers.set(key, value));
+  81:         }
+  82:       },
+  83:     },
+  84:   });
+  85: 
+  86:   // Do not add code between createServerClient and getUser().
+  87:   // getUser() asks Supabase to confirm the session. The cookie alone is never trusted.
+  88:   const {
+  89:     data: { user },
+  90:   } = await supabase.auth.getUser();
+  91: 
+  92:   const path = request.nextUrl.pathname;
+  93: 
+  94:   if (!user) {
+  95:     return isPublic(path) ? response : deny(request, response, "login");
+  96:   }
+  97: 
+  98:   const allowed = Boolean(user.email_confirmed_at) && isEmailAllowed(user.email);
+  99:   if (!allowed) {
+ 100:     return isPublic(path) ? response : deny(request, response, "not_allowed");
+ 101:   }
+ 102: 
+ 103:   if (path === "/login") {
+ 104:     const url = request.nextUrl.clone();
+ 105:     url.pathname = "/dashboard";
+ 106:     url.search = "";
+ 107:     const redirect = NextResponse.redirect(url);
+ 108:     copyCookies(response, redirect);
+ 109:     return redirect;
+ 110:   }
+ 111: 
+ 112:   return response;
+ 113: }
+
+----- FILE: src\lib\auth\session.ts -----
+   1: import { createClient } from "../supabase/server";
+   2: import { getSupabaseEnv } from "../supabase/env";
+   3: import { isEmailAllowed } from "./guards";
+   4: 
+   5: // SERVER ONLY. Decides who is signed in and whether they are an admin.
+   6: // The role comes from public.profiles, which the browser cannot change.
+   7: 
+   8: export type AccessResult =
+   9:   | { ok: true; userId: string; email: string; role: "user" | "admin" }
+  10:   | { ok: false; status: 401 | 403 | 503; code: string; message: string };
+  11: 
+  12: export async function getAccess(): Promise<AccessResult> {
+  13:   if (!getSupabaseEnv()) {
+  14:     return {
+  15:       ok: false,
+  16:       status: 503,
+  17:       code: "auth_not_configured",
+  18:       message: "Sign-in is not configured on the server.",
+  19:     };
+  20:   }
+  21: 
+  22:   try {
+  23:     const supabase = await createClient();
+  24: 
+  25:     // getUser() asks Supabase to confirm the session. Cookies alone are never trusted.
+  26:     const {
+  27:       data: { user },
+  28:     } = await supabase.auth.getUser();
+  29: 
+  30:     if (!user) {
+  31:       return { ok: false, status: 401, code: "unauthenticated", message: "Please sign in." };
+  32:     }
+  33:     if (!user.email_confirmed_at || !isEmailAllowed(user.email)) {
+  34:       return {
+  35:         ok: false,
+  36:         status: 403,
+  37:         code: "not_allowed",
+  38:         message: "This account is not allowed to use the app.",
+  39:       };
+  40:     }
+  41: 
+  42:     const { data, error } = await supabase
+  43:       .from("profiles")
+  44:       .select("role")
+  45:       .eq("id", user.id)
+  46:       .maybeSingle();
+  47: 
+  48:     if (error) {
+  49:       return {
+  50:         ok: false,
+  51:         status: 503,
+  52:         code: "profile_unavailable",
+  53:         message: "Your profile could not be read. Check that the profiles SQL was run in Supabase.",
+  54:       };
+  55:     }
+  56: 
+  57:     return {
+  58:       ok: true,
+  59:       userId: user.id,
+  60:       email: user.email ?? "",
+  61:       role: data?.role === "admin" ? "admin" : "user",
+  62:     };
+  63:   } catch {
+  64:     return {
+  65:       ok: false,
+  66:       status: 503,
+  67:       code: "auth_unavailable",
+  68:       message: "Could not check your sign-in. Try again.",
+  69:     };
+  70:   }
+  71: }
+  72: 
+  73: /** Returns an error Response if the caller is not a signed-in admin, or null if they are. */
+  74: export async function adminApiGuard(): Promise<Response | null> {
+  75:   const access = await getAccess();
+  76: 
+  77:   if (!access.ok) {
+  78:     return Response.json(
+  79:       { success: false, code: access.code, message: access.message },
+  80:       { status: access.status, headers: { "Cache-Control": "no-store" } },
+  81:     );
+  82:   }
+  83: 
+  84:   if (access.role !== "admin") {
+  85:     return Response.json(
+  86:       { success: false, code: "forbidden", message: "Only an admin can do this." },
+  87:       { status: 403, headers: { "Cache-Control": "no-store" } },
+  88:     );
+  89:   }
+  90: 
+  91:   return null;
+  92: }
+
+----- FILE: src\app\auth\signout\route.ts -----
+   1: import { NextResponse } from "next/server";
+   2: import { createClient } from "../../../lib/supabase/server";
+   3: 
+   4: export async function POST(request: Request): Promise<Response> {
+   5:   const origin = new URL(request.url).origin;
+   6:   const supabase = await createClient();
+   7:   await supabase.auth.signOut();
+   8:   return NextResponse.redirect(`${origin}/login`, 303);
+   9: }
+
+----- FILE: src\app\auth\callback\route.ts -----
+   1: import { NextResponse } from "next/server";
+   2: import { createClient } from "../../../lib/supabase/server";
+   3: 
+   4: export async function GET(request: Request): Promise<Response> {
+   5:   const url = new URL(request.url);
+   6:   const code = url.searchParams.get("code");
+   7: 
+   8:   if (url.searchParams.get("error") || !code) {
+   9:     return NextResponse.redirect(`${url.origin}/login?error=cancelled`);
+  10:   }
+  11: 
+  12:   const supabase = await createClient();
+  13:   const { error } = await supabase.auth.exchangeCodeForSession(code);
+  14:   if (error) {
+  15:     return NextResponse.redirect(`${url.origin}/login?error=oauth`);
+  16:   }
+  17:   // Fixed destination, so there is no open redirect.
+  18:   return NextResponse.redirect(`${url.origin}/dashboard`);
+  19: }
+
+----- FILE: src\app\(app)\admin\page.tsx -----
+   1: import type { Metadata } from "next";
+   2: import Link from "next/link";
+   3: import { redirect } from "next/navigation";
+   4: import { EmptyState } from "../../../components/EmptyState";
+   5: import { getAllowedEmails } from "../../../lib/auth/guards";
+   6: import { getAccess } from "../../../lib/auth/session";
+   7: import type { PublicKey } from "../../../lib/keys/shared";
+   8: import { MAX_KEYS_PER_PROVIDER, PROVIDERS } from "../../../lib/providers/catalog";
+   9: import { getCandidates, getStorageState, listKeys } from "../../../lib/server/keyStore";
+  10: import "./admin.css";
+  11: 
+  12: export const metadata: Metadata = {
+  13:   title: "Admin",
+  14: };
+  15: 
+  16: export default async function AdminPage() {
+  17:   const access = await getAccess();
+  18: 
+  19:   if (!access.ok) {
+  20:     if (access.status === 401 || access.code === "not_allowed") {
+  21:       redirect("/login");
+  22:     }
+  23:     return (
+  24:       <div className="page">
+  25:         <EmptyState
+  26:           icon="admin"
+  27:           title="Admin panel unavailable"
+  28:           description={`${access.message} The admin panel needs sign-in and the profiles table to check who is an administrator.`}
+  29:           action={{ href: "/dashboard", label: "Back to dashboard" }}
+  30:         />
+  31:       </div>
+  32:     );
+  33:   }
+  34: 
+  35:   if (access.role !== "admin") {
+  36:     return (
+  37:       <div className="page">
+  38:         <EmptyState
+  39:           icon="admin"
+  40:           title="Admins only"
+  41:           description="Your account does not have the admin role. Only an administrator can open this page."
+  42:           action={{ href: "/dashboard", label: "Back to dashboard" }}
+  43:         />
+  44:       </div>
+  45:     );
+  46:   }
+  47: 
+  48:   const storage = getStorageState();
+  49:   let keys: PublicKey[] = [];
+  50:   let keysError: string | null = null;
+  51: 
+  52:   if (storage.state === "ready") {
+  53:     try {
+  54:       keys = await listKeys();
+  55:     } catch {
+  56:       keysError =
+  57:         "The saved keys could not be read. Check that the api_keys SQL was run and that SUPABASE_SERVICE_ROLE_KEY is correct.";
+  58:     }
+  59:   }
+  60: 
+  61:   // Only the yes/no result and its source are used. No key value is ever shown.
+  62:   const gemini = await getCandidates("gemini");
+  63:   const geminiText = gemini.ok
+  64:     ? gemini.source === "store"
+  65:       ? "Available (saved key)"
+  66:       : "Available (environment key)"
+  67:     : gemini.message;
+  68: 
+  69:   const keyCountsKnown = storage.state === "ready" && keysError === null;
+  70: 
+  71:   return (
+  72:     <div className="page">
+  73:       <header className="page-header">
+  74:         <span className="eyebrow">Administration</span>
+  75:         <h1>Admin Control Panel</h1>
+  76:         <p>
+  77:           Real status only. If something is not measured yet, it says so instead of showing a
+  78:           made-up number.
+  79:         </p>
+  80:       </header>
+  81: 
+  82:       <section aria-labelledby="ad-session-heading">
+  83:         <div className="section-head">
+  84:           <h2 id="ad-session-heading" className="section-title">
+  85:             Your session
+  86:           </h2>
+  87:         </div>
+  88:         <div className="status-grid">
+  89:           <div className="card status-card">
+  90:             <span className="status-label">Signed in as</span>
+  91:             <span className="ad-value">{access.email}</span>
+  92:             <span className="status-detail">Confirmed by Supabase on the server.</span>
+  93:           </div>
+  94:           <div className="card status-card">
+  95:             <span className="status-label">Role</span>
+  96:             <span className="status-pill ad-ok">
+  97:               <span className="status-dot" aria-hidden="true" />
+  98:               Administrator
+  99:             </span>
+ 100:             <span className="status-detail">Read from the profiles table. Browsers cannot change it.</span>
+ 101:           </div>
+ 102:         </div>
+ 103:       </section>
+ 104: 
+ 105:       <section aria-labelledby="ad-setup-heading">
+ 106:         <div className="section-head">
+ 107:           <h2 id="ad-setup-heading" className="section-title">
+ 108:             Setup status
+ 109:           </h2>
+ 110:         </div>
+ 111:         <div className="status-grid">
+ 112:           <div className="card status-card">
+ 113:             <span className="status-label">Allowed accounts</span>
+ 114:             <span className="ad-value">{getAllowedEmails().length}</span>
+ 115:             <span className="status-detail">Emails in ALLOWED_EMAILS who may sign in.</span>
+ 116:           </div>
+ 117:           <div className="card status-card">
+ 118:             <span className="status-label">Key storage</span>
+ 119:             <span className={`status-pill ${storage.state === "ready" ? "ad-ok" : ""}`}>
+ 120:               <span className="status-dot" aria-hidden="true" />
+ 121:               {storage.state === "ready" ? "Ready" : "Not ready"}
+ 122:             </span>
+ 123:             <span className="status-detail">{keysError ?? storage.message}</span>
+ 124:           </div>
+ 125:           <div className="card status-card">
+ 126:             <span className="status-label">Gemini key for generation</span>
+ 127:             <span className={`status-pill ${gemini.ok ? "ad-ok" : ""}`}>
+ 128:               <span className="status-dot" aria-hidden="true" />
+ 129:               {gemini.ok ? "Available" : "Not available"}
+ 130:             </span>
+ 131:             <span className="status-detail">{geminiText}</span>
+ 132:           </div>
+ 133:         </div>
+ 134:       </section>
+ 135: 
+ 136:       <section aria-labelledby="ad-providers-heading">
+ 137:         <div className="section-head">
+ 138:           <h2 id="ad-providers-heading" className="section-title">
+ 139:             AI provider keys
+ 140:           </h2>
+ 141:           <Link href="/settings/api-keys" className="button">
+ 142:             Open API Key Manager
+ 143:           </Link>
+ 144:         </div>
+ 145:         <div className="card ad-scroll">
+ 146:           <table className="ad-table">
+ 147:             <thead>
+ 148:               <tr>
+ 149:                 <th scope="col">Provider</th>
+ 150:                 <th scope="col">Saved keys</th>
+... (truncated after 150 lines)
+
+----- FILE: src\components\AppShell.tsx -----
+   1: "use client";
+   2: 
+   3: import { useCallback, useEffect, useState, type ReactNode } from "react";
+   4: import { Icon } from "./Icons";
+   5: import { SearchBox } from "./SearchBox";
+   6: import { Sidebar } from "./Sidebar";
+   7: import { ThemeToggle } from "./ThemeToggle";
+   8: 
+   9: const SIDEBAR_ID = "app-sidebar";
+  10: 
+  11: export type ShellUser = {
+  12:   email: string;
+  13:   role: "user" | "admin";
+  14: } | null;
+  15: 
+  16: export function AppShell({ children, user }: { children: ReactNode; user: ShellUser }) {
+  17:   const [menuOpen, setMenuOpen] = useState(false);
+  18:   const closeMenu = useCallback(() => setMenuOpen(false), []);
+  19: 
+  20:   useEffect(() => {
+  21:     if (!menuOpen) {
+  22:       return;
+  23:     }
+  24:     function handleKeyDown(event: KeyboardEvent) {
+  25:       if (event.key === "Escape") {
+  26:         setMenuOpen(false);
+  27:       }
+  28:     }
+  29:     window.addEventListener("keydown", handleKeyDown);
+  30:     return () => window.removeEventListener("keydown", handleKeyDown);
+  31:   }, [menuOpen]);
+  32: 
+  33:   const displayName = user ? user.email.split("@")[0] : "Guest";
+  34:   const initial = (user ? user.email.charAt(0) : "G").toUpperCase();
+  35:   const subtitle = user
+  36:     ? user.role === "admin"
+  37:       ? "Administrator"
+  38:       : "Signed in"
+  39:     : "Not signed in";
+  40: 
+  41:   return (
+  42:     <div className="app-shell">
+  43:       <a href="#main-content" className="skip-link">
+  44:         Skip to main content
+  45:       </a>
+  46: 
+  47:       <Sidebar
+  48:         id={SIDEBAR_ID}
+  49:         open={menuOpen}
+  50:         isAdmin={user?.role === "admin"}
+  51:         onNavigate={closeMenu}
+  52:       />
+  53: 
+  54:       {menuOpen ? (
+  55:         <button
+  56:           type="button"
+  57:           className="scrim"
+  58:           aria-label="Close navigation menu"
+  59:           onClick={closeMenu}
+  60:         />
+  61:       ) : null}
+  62: 
+  63:       <div className="app-main">
+  64:         <header className="topbar">
+  65:           <button
+  66:             type="button"
+  67:             className="icon-button menu-button"
+  68:             aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
+  69:             aria-expanded={menuOpen}
+  70:             aria-controls={SIDEBAR_ID}
+  71:             onClick={() => setMenuOpen((open) => !open)}
+  72:           >
+  73:             <Icon name={menuOpen ? "close" : "menu"} />
+  74:           </button>
+  75: 
+  76:           <SearchBox />
+  77: 
+  78:           <div className="topbar-actions">
+  79:             <ThemeToggle />
+  80:             <button
+  81:               type="button"
+  82:               className="icon-button"
+  83:               disabled
+  84:               aria-disabled="true"
+  85:               aria-label="Notifications (not available yet)"
+  86:               title="Notifications are not available yet"
+  87:             >
+  88:               <Icon name="bell" />
+  89:             </button>
+  90:             <div className="user-chip" title={user ? user.email : "Sign-in is not set up yet"}>
+  91:               <span className="user-avatar" aria-hidden="true">
+  92:                 {initial}
+  93:               </span>
+  94:               <span className="user-text">
+  95:                 <strong>{displayName}</strong>
+  96:                 <small>{subtitle}</small>
+  97:               </span>
+  98:             </div>
+  99:           </div>
+ 100:         </header>
+ 101: 
+ 102:         <main id="main-content" tabIndex={-1}>
+ 103:           {children}
+ 104:         </main>
+ 105:       </div>
+ 106:     </div>
+ 107:   );
+ 108: }
+
+----- FILE: src\components\Sidebar.tsx -----
+   1: "use client";
+   2: 
+   3: import Link from "next/link";
+   4: import { usePathname } from "next/navigation";
+   5: import { BrandMark } from "./BrandMark";
+   6: import { Icon } from "./Icons";
+   7: import { getSupabaseEnv } from "../lib/supabase/env";
+   8: import {
+   9:   getVisibleNavItems,
+  10:   isActivePath,
+  11:   type NavItem,
+  12: } from "../lib/navigation";
+  13: 
+  14: type SidebarProps = {
+  15:   id: string;
+  16:   open: boolean;
+  17:   isAdmin: boolean;
+  18:   onNavigate: () => void;
+  19: };
+  20: 
+  21: type NavListProps = {
+  22:   items: NavItem[];
+  23:   pathname: string;
+  24:   onNavigate: () => void;
+  25: };
+  26: 
+  27: function NavList({ items, pathname, onNavigate }: NavListProps) {
+  28:   return (
+  29:     <ul className="nav-list">
+  30:       {items.map((item) => (
+  31:         <li key={item.href}>
+  32:           <Link
+  33:             href={item.href}
+  34:             className="nav-link"
+  35:             aria-current={isActivePath(pathname, item.href) ? "page" : undefined}
+  36:             onClick={onNavigate}
+  37:           >
+  38:             <Icon name={item.icon} />
+  39:             <span>{item.label}</span>
+  40:           </Link>
+  41:         </li>
+  42:       ))}
+  43:     </ul>
+  44:   );
+  45: }
+  46: 
+  47: export function Sidebar({ id, open, isAdmin, onNavigate }: SidebarProps) {
+  48:   const pathname = usePathname();
+  49:   const items = getVisibleNavItems(isAdmin);
+  50:   const mainItems = items.filter((item) => item.placement === "main");
+  51:   const bottomItems = items.filter((item) => item.placement === "bottom");
+  52:   const signInEnabled = getSupabaseEnv() !== null;
+  53: 
+  54:   return (
+  55:     <aside id={id} className="sidebar" data-open={open ? "true" : "false"}>
+  56:       <Link href="/dashboard" className="brand" onClick={onNavigate}>
+  57:         <BrandMark size={46} />
+  58:         <span className="brand-text">
+  59:           <strong>METAFORGE</strong>
+  60:           <strong className="brand-ai">AI PRO</strong>
+  61:           <small>By FER</small>
+  62:         </span>
+  63:       </Link>
+  64: 
+  65:       <nav aria-label="Main navigation" className="sidebar-nav">
+  66:         <NavList items={mainItems} pathname={pathname} onNavigate={onNavigate} />
+  67:         <hr className="sidebar-divider" />
+  68:         <NavList items={bottomItems} pathname={pathname} onNavigate={onNavigate} />
+  69:       </nav>
+  70: 
+  71:       <div className="sidebar-footer">
+  72:         {signInEnabled ? (
+  73:           <form action="/auth/signout" method="post">
+  74:             <button type="submit" className="nav-link">
+  75:               <Icon name="logout" />
+  76:               <span>Logout</span>
+  77:             </button>
+  78:           </form>
+  79:         ) : (
+  80:           <button
+  81:             type="button"
+  82:             className="nav-link"
+  83:             disabled
+  84:             aria-disabled="true"
+  85:             title="Sign-in is not set up yet"
+  86:           >
+  87:             <Icon name="logout" />
+  88:             <span>Logout</span>
+  89:             <span className="nav-soon">Not set up</span>
+  90:           </button>
+  91:         )}
+  92:       </div>
+  93:     </aside>
+  94:   );
+  95: }
+
+=== 6. Files that contain the top bar or bell (first 200 lines each) ===
+
+----- FILE: src\app\(app)\admin\page.tsx -----
+   1: import type { Metadata } from "next";
+   2: import Link from "next/link";
+   3: import { redirect } from "next/navigation";
+   4: import { EmptyState } from "../../../components/EmptyState";
+   5: import { getAllowedEmails } from "../../../lib/auth/guards";
+   6: import { getAccess } from "../../../lib/auth/session";
+   7: import type { PublicKey } from "../../../lib/keys/shared";
+   8: import { MAX_KEYS_PER_PROVIDER, PROVIDERS } from "../../../lib/providers/catalog";
+   9: import { getCandidates, getStorageState, listKeys } from "../../../lib/server/keyStore";
+  10: import "./admin.css";
+  11: 
+  12: export const metadata: Metadata = {
+  13:   title: "Admin",
+  14: };
+  15: 
+  16: export default async function AdminPage() {
+  17:   const access = await getAccess();
+  18: 
+  19:   if (!access.ok) {
+  20:     if (access.status === 401 || access.code === "not_allowed") {
+  21:       redirect("/login");
+  22:     }
+  23:     return (
+  24:       <div className="page">
+  25:         <EmptyState
+  26:           icon="admin"
+  27:           title="Admin panel unavailable"
+  28:           description={`${access.message} The admin panel needs sign-in and the profiles table to check who is an administrator.`}
+  29:           action={{ href: "/dashboard", label: "Back to dashboard" }}
+  30:         />
+  31:       </div>
+  32:     );
+  33:   }
+  34: 
+  35:   if (access.role !== "admin") {
+  36:     return (
+  37:       <div className="page">
+  38:         <EmptyState
+  39:           icon="admin"
+  40:           title="Admins only"
+  41:           description="Your account does not have the admin role. Only an administrator can open this page."
+  42:           action={{ href: "/dashboard", label: "Back to dashboard" }}
+  43:         />
+  44:       </div>
+  45:     );
+  46:   }
+  47: 
+  48:   const storage = getStorageState();
+  49:   let keys: PublicKey[] = [];
+  50:   let keysError: string | null = null;
+  51: 
+  52:   if (storage.state === "ready") {
+  53:     try {
+  54:       keys = await listKeys();
+  55:     } catch {
+  56:       keysError =
+  57:         "The saved keys could not be read. Check that the api_keys SQL was run and that SUPABASE_SERVICE_ROLE_KEY is correct.";
+  58:     }
+  59:   }
+  60: 
+  61:   // Only the yes/no result and its source are used. No key value is ever shown.
+  62:   const gemini = await getCandidates("gemini");
+  63:   const geminiText = gemini.ok
+  64:     ? gemini.source === "store"
+  65:       ? "Available (saved key)"
+  66:       : "Available (environment key)"
+  67:     : gemini.message;
+  68: 
+  69:   const keyCountsKnown = storage.state === "ready" && keysError === null;
+  70: 
+  71:   return (
+  72:     <div className="page">
+  73:       <header className="page-header">
+  74:         <span className="eyebrow">Administration</span>
+  75:         <h1>Admin Control Panel</h1>
+  76:         <p>
+  77:           Real status only. If something is not measured yet, it says so instead of showing a
+  78:           made-up number.
+  79:         </p>
+  80:       </header>
+  81: 
+  82:       <section aria-labelledby="ad-session-heading">
+  83:         <div className="section-head">
+  84:           <h2 id="ad-session-heading" className="section-title">
+  85:             Your session
+  86:           </h2>
+  87:         </div>
+  88:         <div className="status-grid">
+  89:           <div className="card status-card">
+  90:             <span className="status-label">Signed in as</span>
+  91:             <span className="ad-value">{access.email}</span>
+  92:             <span className="status-detail">Confirmed by Supabase on the server.</span>
+  93:           </div>
+  94:           <div className="card status-card">
+  95:             <span className="status-label">Role</span>
+  96:             <span className="status-pill ad-ok">
+  97:               <span className="status-dot" aria-hidden="true" />
+  98:               Administrator
+  99:             </span>
+ 100:             <span className="status-detail">Read from the profiles table. Browsers cannot change it.</span>
+ 101:           </div>
+ 102:         </div>
+ 103:       </section>
+ 104: 
+ 105:       <section aria-labelledby="ad-setup-heading">
+ 106:         <div className="section-head">
+ 107:           <h2 id="ad-setup-heading" className="section-title">
+ 108:             Setup status
+ 109:           </h2>
+ 110:         </div>
+ 111:         <div className="status-grid">
+ 112:           <div className="card status-card">
+ 113:             <span className="status-label">Allowed accounts</span>
+ 114:             <span className="ad-value">{getAllowedEmails().length}</span>
+ 115:             <span className="status-detail">Emails in ALLOWED_EMAILS who may sign in.</span>
+ 116:           </div>
+ 117:           <div className="card status-card">
+ 118:             <span className="status-label">Key storage</span>
+ 119:             <span className={`status-pill ${storage.state === "ready" ? "ad-ok" : ""}`}>
+ 120:               <span className="status-dot" aria-hidden="true" />
+ 121:               {storage.state === "ready" ? "Ready" : "Not ready"}
+ 122:             </span>
+ 123:             <span className="status-detail">{keysError ?? storage.message}</span>
+ 124:           </div>
+ 125:           <div className="card status-card">
+ 126:             <span className="status-label">Gemini key for generation</span>
+ 127:             <span className={`status-pill ${gemini.ok ? "ad-ok" : ""}`}>
+ 128:               <span className="status-dot" aria-hidden="true" />
+ 129:               {gemini.ok ? "Available" : "Not available"}
+ 130:             </span>
+ 131:             <span className="status-detail">{geminiText}</span>
+ 132:           </div>
+ 133:         </div>
+ 134:       </section>
+ 135: 
+ 136:       <section aria-labelledby="ad-providers-heading">
+ 137:         <div className="section-head">
+ 138:           <h2 id="ad-providers-heading" className="section-title">
+ 139:             AI provider keys
+ 140:           </h2>
+ 141:           <Link href="/settings/api-keys" className="button">
+ 142:             Open API Key Manager
+ 143:           </Link>
+ 144:         </div>
+ 145:         <div className="card ad-scroll">
+ 146:           <table className="ad-table">
+ 147:             <thead>
+ 148:               <tr>
+ 149:                 <th scope="col">Provider</th>
+ 150:                 <th scope="col">Saved keys</th>
+ 151:                 <th scope="col">Enabled</th>
+ 152:                 <th scope="col">Used by tools</th>
+ 153:               </tr>
+ 154:             </thead>
+ 155:             <tbody>
+ 156:               {PROVIDERS.map((provider) => {
+ 157:                 const mine = keys.filter((key) => key.provider === provider.id);
+ 158:                 return (
+ 159:                   <tr key={provider.id}>
+ 160:                     <th scope="row">{provider.name}</th>
+ 161:                     <td>
+ 162:                       {keyCountsKnown ? `${mine.length} / ${MAX_KEYS_PER_PROVIDER}` : "Unknown"}
+ 163:                     </td>
+ 164:                     <td>
+ 165:                       {keyCountsKnown ? mine.filter((key) => key.enabled).length : "Unknown"}
+ 166:                     </td>
+ 167:                     <td>{provider.id === "gemini" ? "Metadata Generator" : "Not connected yet"}</td>
+ 168:                   </tr>
+ 169:                 );
+ 170:               })}
+ 171:             </tbody>
+ 172:           </table>
+ 173:         </div>
+ 174:         <p className="section-note">
+ 175:           Counts come from the saved keys. A saved key is not proof that it works. The key manager
+ 176:           shows what the last real request did.
+ 177:         </p>
+ 178:       </section>
+ 179: 
+ 180:       <section aria-labelledby="ad-data-heading">
+ 181:         <div className="section-head">
+ 182:           <h2 id="ad-data-heading" className="section-title">
+ 183:             Jobs and usage
+ 184:           </h2>
+ 185:         </div>
+ 186:         <EmptyState
+ 187:           icon="history"
+ 188:           title="No data yet"
+ 189:           description="Job history is not recorded yet, so there are no job counts, errors or usage figures to show."
+ 190:         />
+ 191:       </section>
+ 192:     </div>
+ 193:   );
+ 194: }
+
+----- FILE: src\app\(app)\help\page.tsx -----
+   1: "use client";
+   2: // METAFORGE-HELP-SUPPORT v1
+   3: 
+   4: import "./help.css";
+   5: import Link from "next/link";
+   6: import { useEffect, useMemo, useRef, useState } from "react";
+   7: import {
+   8:   CATEGORIES,
+   9:   HELP_ARTICLES,
+  10:   KNOWN_ROUTES,
+  11:   UNVERIFIED_NOTE,
+  12:   searchArticles,
+  13:   type HelpArticle,
+  14: } from "../../../lib/help-content";
+  15: 
+  16: type Feedback = { kind: "success" | "error"; text: string } | null;
+  17: 
+  18: const SUPPORT_EMAIL = (process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "").trim();
+  19: const SUPPORT_URL_RAW = (process.env.NEXT_PUBLIC_SUPPORT_URL ?? "").trim();
+  20: const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(SUPPORT_EMAIL);
+  21: 
+  22: function safeHttpsUrl(value: string): string | null {
+  23:   if (!value) return null;
+  24:   try {
+  25:     const u = new URL(value);
+  26:     return u.protocol === "https:" ? u.toString() : null;
+  27:   } catch {
+  28:     return null;
+  29:   }
+  30: }
+  31: const SUPPORT_URL = safeHttpsUrl(SUPPORT_URL_RAW);
+  32: 
+  33: async function copyText(text: string): Promise<boolean> {
+  34:   try {
+  35:     if (navigator.clipboard && window.isSecureContext) {
+  36:       await navigator.clipboard.writeText(text);
+  37:       return true;
+  38:     }
+  39:   } catch {
+  40:     // fall through to the legacy method
+  41:   }
+  42:   try {
+  43:     const ta = document.createElement("textarea");
+  44:     ta.value = text;
+  45:     ta.setAttribute("readonly", "");
+  46:     ta.style.position = "fixed";
+  47:     ta.style.opacity = "0";
+  48:     document.body.appendChild(ta);
+  49:     ta.select();
+  50:     const ok = document.execCommand("copy");
+  51:     document.body.removeChild(ta);
+  52:     return ok;
+  53:   } catch {
+  54:     return false;
+  55:   }
+  56: }
+  57: 
+  58: // Contains no API keys, tokens, query strings, file contents or history.
+  59: function buildDiagnostics(): string {
+  60:   let prefs = "unknown";
+  61:   try {
+  62:     prefs =
+  63:       window.localStorage.getItem("metaforge.preferences.v1") !== null
+  64:         ? "saved in this browser"
+  65:         : "not saved (defaults in use)";
+  66:   } catch {
+  67:     prefs = "local storage unavailable";
+  68:   }
+  69:   return [
+  70:     "METAFORGE AI PRO - troubleshooting information",
+  71:     "Generated locally in your browser. Nothing was sent anywhere.",
+  72:     "Time: " + new Date().toISOString(),
+  73:     "Page: " + window.location.pathname,
+  74:     "Browser: " + navigator.userAgent,
+  75:     "Viewport: " + window.innerWidth + "x" + window.innerHeight,
+  76:     "Online: " + (navigator.onLine ? "yes" : "no"),
+  77:     "Saved settings: " + prefs,
+  78:     "Not included: API keys, tokens, passwords, file contents, history.",
+  79:   ].join("\n");
+  80: }
+  81: 
+  82: function buildReportTemplate(): string {
+  83:   return [
+  84:     "METAFORGE AI PRO - error report",
+  85:     "",
+  86:     "What I was trying to do:",
+  87:     "",
+  88:     "Which tool/page:",
+  89:     "",
+  90:     "What I expected:",
+  91:     "",
+  92:     "What happened (exact error message):",
+  93:     "",
+  94:     "Steps to reproduce:",
+  95:     "1.",
+  96:     "2.",
+  97:     "3.",
+  98:     "",
+  99:     "File type and approximate size (do not attach private files unless asked):",
+ 100:     "",
+ 101:     "--- Technical information (generated locally) ---",
+ 102:     buildDiagnostics(),
+ 103:     "",
+ 104:     "Do not paste API keys, passwords or tokens into this report.",
+ 105:   ].join("\n");
+ 106: }
+ 107: 
+ 108: export default function HelpSupportPage() {
+ 109:   const [query, setQuery] = useState("");
+ 110:   const [open, setOpen] = useState<Set<string>>(() => new Set());
+ 111:   const [feedback, setFeedback] = useState<Feedback>(null);
+ 112:   const [copying, setCopying] = useState(false);
+ 113:   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+ 114:   const searchRef = useRef<HTMLInputElement>(null);
+ 115: 
+ 116:   const results = useMemo(() => searchArticles(HELP_ARTICLES, query), [query]);
+ 117:   const grouped = useMemo(
+ 118:     () =>
+ 119:       CATEGORIES.map((c) => ({ category: c, items: results.filter((a) => a.category === c) })).filter(
+ 120:         (g) => g.items.length > 0
+ 121:       ),
+ 122:     [results]
+ 123:   );
+ 124: 
+ 125:   useEffect(() => {
+ 126:     return () => {
+ 127:       if (timer.current) clearTimeout(timer.current);
+ 128:     };
+ 129:   }, []);
+ 130: 
+ 131:   function say(kind: "success" | "error", text: string) {
+ 132:     setFeedback({ kind, text });
+ 133:     if (timer.current) clearTimeout(timer.current);
+ 134:     timer.current = setTimeout(() => setFeedback(null), 6000);
+ 135:   }
+ 136: 
+ 137:   function toggle(id: string) {
+ 138:     setOpen((prev) => {
+ 139:       const next = new Set(prev);
+ 140:       if (next.has(id)) next.delete(id);
+ 141:       else next.add(id);
+ 142:       return next;
+ 143:     });
+ 144:   }
+ 145: 
+ 146:   function expandAll() {
+ 147:     setOpen((prev) => {
+ 148:       const next = new Set(prev);
+ 149:       results.forEach((a) => next.add(a.id));
+ 150:       return next;
+ 151:     });
+ 152:   }
+ 153: 
+ 154:   function collapseAll() {
+ 155:     setOpen((prev) => {
+ 156:       const next = new Set(prev);
+ 157:       results.forEach((a) => next.delete(a.id));
+ 158:       return next;
+ 159:     });
+ 160:   }
+ 161: 
+ 162:   function clearSearch() {
+ 163:     setQuery("");
+ 164:     searchRef.current?.focus();
+ 165:   }
+ 166: 
+ 167:   async function handleCopy(kind: "diagnostics" | "template") {
+ 168:     if (copying) return;
+ 169:     setCopying(true);
+ 170:     try {
+ 171:       const text = kind === "diagnostics" ? buildDiagnostics() : buildReportTemplate();
+ 172:       const ok = await copyText(text);
+ 173:       if (ok) {
+ 174:         say("success", "Copied to your clipboard. This only copied text locally; nothing was sent anywhere.");
+ 175:       } else {
+ 176:         say("error", "Copy failed because the browser blocked clipboard access. Nothing was copied.");
+ 177:       }
+ 178:     } finally {
+ 179:       setCopying(false);
+ 180:     }
+ 181:   }
+ 182: 
+ 183:   function renderArticle(a: HelpArticle) {
+ 184:     const isOpen = open.has(a.id);
+ 185:     return (
+ 186:       <div key={a.id} className="hlp-item">
+ 187:         <h3 className="hlp-item-h">
+ 188:           <button
+ 189:             type="button"
+ 190:             id={a.id + "-btn"}
+ 191:             className="hlp-item-btn"
+ 192:             aria-expanded={isOpen}
+ 193:             aria-controls={a.id + "-panel"}
+ 194:             onClick={() => toggle(a.id)}
+ 195:           >
+ 196:             <span className="hlp-item-text">
+ 197:               <span className="hlp-item-title">{a.title}</span>
+ 198:               <span className="hlp-item-sum">{a.summary}</span>
+ 199:             </span>
+ 200:             <span className="hlp-chev" aria-hidden="true">{isOpen ? "-" : "+"}</span>
+... (truncated after 200 lines)
+
+----- FILE: src\app\(app)\settings\api-keys\page.tsx -----
+   1: import type { Metadata } from "next";
+   2: import { redirect } from "next/navigation";
+   3: import { ApiKeyManager } from "../../../../components/api-keys/ApiKeyManager";
+   4: import { EmptyState } from "../../../../components/EmptyState";
+   5: import { getAccess } from "../../../../lib/auth/session";
+   6: import "./keys.css";
+   7: 
+   8: export const metadata: Metadata = {
+   9:   title: "API Key Manager",
+  10: };
+  11: 
+  12: export default async function ApiKeysPage() {
+  13:   const access = await getAccess();
+  14: 
+  15:   // Sign-in not configured (local development): keep the page usable as before.
+  16:   if (!access.ok && access.code === "auth_not_configured") {
+  17:     return <ApiKeyManager />;
+  18:   }
+  19: 
+  20:   if (!access.ok) {
+  21:     if (access.status === 401 || access.code === "not_allowed") {
+  22:       redirect("/login");
+  23:     }
+  24:     return (
+  25:       <div className="page">
+  26:         <EmptyState
+  27:           icon="key"
+  28:           title="API Key Manager unavailable"
+  29:           description={access.message}
+  30:           action={{ href: "/dashboard", label: "Back to dashboard" }}
+  31:         />
+  32:       </div>
+  33:     );
+  34:   }
+  35: 
+  36:   if (access.role !== "admin") {
+  37:     return (
+  38:       <div className="page">
+  39:         <EmptyState
+  40:           icon="key"
+  41:           title="Admins only"
+  42:           description="Only an administrator can manage API keys."
+  43:           action={{ href: "/dashboard", label: "Back to dashboard" }}
+  44:         />
+  45:       </div>
+  46:     );
+  47:   }
+  48: 
+  49:   return <ApiKeyManager />;
+  50: }
+
+----- FILE: src\components\AppShell.tsx -----
+   1: "use client";
+   2: 
+   3: import { useCallback, useEffect, useState, type ReactNode } from "react";
+   4: import { Icon } from "./Icons";
+   5: import { SearchBox } from "./SearchBox";
+   6: import { Sidebar } from "./Sidebar";
+   7: import { ThemeToggle } from "./ThemeToggle";
+   8: 
+   9: const SIDEBAR_ID = "app-sidebar";
+  10: 
+  11: export type ShellUser = {
+  12:   email: string;
+  13:   role: "user" | "admin";
+  14: } | null;
+  15: 
+  16: export function AppShell({ children, user }: { children: ReactNode; user: ShellUser }) {
+  17:   const [menuOpen, setMenuOpen] = useState(false);
+  18:   const closeMenu = useCallback(() => setMenuOpen(false), []);
+  19: 
+  20:   useEffect(() => {
+  21:     if (!menuOpen) {
+  22:       return;
+  23:     }
+  24:     function handleKeyDown(event: KeyboardEvent) {
+  25:       if (event.key === "Escape") {
+  26:         setMenuOpen(false);
+  27:       }
+  28:     }
+  29:     window.addEventListener("keydown", handleKeyDown);
+  30:     return () => window.removeEventListener("keydown", handleKeyDown);
+  31:   }, [menuOpen]);
+  32: 
+  33:   const displayName = user ? user.email.split("@")[0] : "Guest";
+  34:   const initial = (user ? user.email.charAt(0) : "G").toUpperCase();
+  35:   const subtitle = user
+  36:     ? user.role === "admin"
+  37:       ? "Administrator"
+  38:       : "Signed in"
+  39:     : "Not signed in";
+  40: 
+  41:   return (
+  42:     <div className="app-shell">
+  43:       <a href="#main-content" className="skip-link">
+  44:         Skip to main content
+  45:       </a>
+  46: 
+  47:       <Sidebar
+  48:         id={SIDEBAR_ID}
+  49:         open={menuOpen}
+  50:         isAdmin={user?.role === "admin"}
+  51:         onNavigate={closeMenu}
+  52:       />
+  53: 
+  54:       {menuOpen ? (
+  55:         <button
+  56:           type="button"
+  57:           className="scrim"
+  58:           aria-label="Close navigation menu"
+  59:           onClick={closeMenu}
+  60:         />
+  61:       ) : null}
+  62: 
+  63:       <div className="app-main">
+  64:         <header className="topbar">
+  65:           <button
+  66:             type="button"
+  67:             className="icon-button menu-button"
+  68:             aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
+  69:             aria-expanded={menuOpen}
+  70:             aria-controls={SIDEBAR_ID}
+  71:             onClick={() => setMenuOpen((open) => !open)}
+  72:           >
+  73:             <Icon name={menuOpen ? "close" : "menu"} />
+  74:           </button>
+  75: 
+  76:           <SearchBox />
+  77: 
+  78:           <div className="topbar-actions">
+  79:             <ThemeToggle />
+  80:             <button
+  81:               type="button"
+  82:               className="icon-button"
+  83:               disabled
+  84:               aria-disabled="true"
+  85:               aria-label="Notifications (not available yet)"
+  86:               title="Notifications are not available yet"
+  87:             >
+  88:               <Icon name="bell" />
+  89:             </button>
+  90:             <div className="user-chip" title={user ? user.email : "Sign-in is not set up yet"}>
+  91:               <span className="user-avatar" aria-hidden="true">
+  92:                 {initial}
+  93:               </span>
+  94:               <span className="user-text">
+  95:                 <strong>{displayName}</strong>
+  96:                 <small>{subtitle}</small>
+  97:               </span>
+  98:             </div>
+  99:           </div>
+ 100:         </header>
+ 101: 
+ 102:         <main id="main-content" tabIndex={-1}>
+ 103:           {children}
+ 104:         </main>
+ 105:       </div>
+ 106:     </div>
+ 107:   );
+ 108: }
+
+----- FILE: src\lib\navigation.ts -----
+   1: import type { IconName } from "../components/Icons";
+   2: 
+   3: export type NavGroup = "Workspace" | "Creative tools" | "Account";
+   4: 
+   5: /** "main" items sit above the sidebar divider, "bottom" items below it. */
+   6: export type NavPlacement = "main" | "bottom";
+   7: 
+   8: export type NavItem = {
+   9:   href: string;
+  10:   label: string;
+  11:   description: string;
+  12:   icon: IconName;
+  13:   group: NavGroup;
+  14:   placement: NavPlacement;
+  15:   /** The build phase in which this page becomes functional. */
+  16:   phase: string;
+  17:   /** Shown in the sidebar only for administrators. */
+  18:   adminOnly?: boolean;
+  19: };
+  20: 
+  21: export const NAV_GROUPS: NavGroup[] = ["Workspace", "Creative tools", "Account"];
+  22: 
+  23: export const NAV_ITEMS: NavItem[] = [
+  24:   {
+  25:     href: "/dashboard",
+  26:     label: "Dashboard",
+  27:     description:
+  28:       "Overview of your recent jobs, setup status and quick access to every tool.",
+  29:     icon: "dashboard",
+  30:     group: "Workspace",
+  31:     placement: "main",
+  32:     phase: "Phase 1",
+  33:   },
+  34:   {
+  35:     href: "/metadata",
+  36:     label: "Metadata Generator",
+  37:     description:
+  38:       "Upload images and generate titles, descriptions and keywords for stock platforms.",
+  39:     icon: "metadata",
+  40:     group: "Workspace",
+  41:     placement: "main",
+  42:     phase: "Phase 2",
+  43:   },
+  44:   {
+  45:     href: "/image-to-prompt",
+  46:     label: "Image-to-Prompt",
+  47:     description:
+  48:       "Analyze an image and write a detailed prompt describing what is visible in it.",
+  49:     icon: "imageToPrompt",
+  50:     group: "Workspace",
+  51:     placement: "main",
+  52:     phase: "Phase 4",
+  53:   },
+  54:   {
+  55:     href: "/background-remover",
+  56:     label: "Background Remover",
+  57:     description: "Remove image backgrounds through a configured provider.",
+  58:     icon: "backgroundRemover",
+  59:     group: "Creative tools",
+  60:     placement: "main",
+  61:     phase: "Phase 7",
+  62:   },
+  63:   {
+  64:     href: "/keywords",
+  65:     label: "Adobe Keywords Search",
+  66:     description: "Brainstorm and research keywords for stock content.",
+  67:     icon: "keywords",
+  68:     group: "Creative tools",
+  69:     placement: "main",
+  70:     phase: "Phase 7",
+  71:   },
+  72:   {
+  73:     href: "/calendar",
+  74:     label: "Global Event Calendar",
+  75:     description: "Plan content around holidays, seasons and events worldwide.",
+  76:     icon: "calendar",
+  77:     group: "Creative tools",
+  78:     placement: "main",
+  79:     phase: "Phase 7",
+  80:   },
+  81:   {
+  82:     href: "/bento-builder",
+  83:     label: "Bento Builder",
+  84:     description: "Arrange images into a layout and export it as a picture.",
+  85:     icon: "bento",
+  86:     group: "Creative tools",
+  87:     placement: "main",
+  88:     phase: "Phase 7",
+  89:   },
+  90:   {
+  91:     href: "/image-to-psd",
+  92:     label: "Image-to-PSD",
+  93:     description: "Convert images for Photoshop workflows.",
+  94:     icon: "psd",
+  95:     group: "Creative tools",
+  96:     placement: "main",
+  97:     phase: "Phase 7",
+  98:   },
+  99:   {
+ 100:     href: "/eps-converter",
+ 101:     label: "AI/EPS-to-JPG Converter",
+ 102:     description: "Convert supported AI, EPS, PDF and image files to JPG.",
+ 103:     icon: "converter",
+ 104:     group: "Creative tools",
+ 105:     placement: "main",
+ 106:     phase: "Phase 7",
+ 107:   },
+ 108:   {
+ 109:     href: "/history",
+ 110:     label: "History",
+ 111:     description: "Review and delete your past jobs.",
+ 112:     icon: "history",
+ 113:     group: "Account",
+ 114:     placement: "main",
+ 115:     phase: "Phase 5",
+ 116:   },
+ 117:   {
+ 118:     href: "/settings/api-keys",
+ 119:     label: "API Key Manager",
+ 120:     description: "Manage AI provider keys securely on the server.",
+ 121:     icon: "key",
+ 122:     group: "Account",
+ 123:     placement: "bottom",
+ 124:     phase: "Phase 6",
+ 125:   },
+ 126:   {
+ 127:     href: "/settings",
+ 128:     label: "Settings",
+ 129:     description: "Choose providers, models and default options.",
+ 130:     icon: "settings",
+ 131:     group: "Account",
+ 132:     placement: "bottom",
+ 133:     phase: "Phase 6",
+ 134:   },
+ 135:   {
+ 136:     href: "/help",
+ 137:     label: "Help & Support",
+ 138:     description: "Guides, troubleshooting and support information.",
+ 139:     icon: "help",
+ 140:     group: "Account",
+ 141:     placement: "bottom",
+ 142:     phase: "Phase 9",
+ 143:   },
+ 144:   {
+ 145:     href: "/admin",
+ 146:     label: "Admin Panel",
+ 147:     description: "Administrator tools. Available to authorized administrators only.",
+ 148:     icon: "admin",
+ 149:     group: "Account",
+ 150:     placement: "bottom",
+ 151:     phase: "Phase 9",
+ 152:     adminOnly: true,
+ 153:   },
+ 154: ];
+ 155: 
+ 156: /** Menu items to show. Admin-only items appear only when isAdmin is true. */
+ 157: export function getVisibleNavItems(isAdmin = false): NavItem[] {
+ 158:   return NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
+ 159: }
+ 160: 
+ 161: export function getNavItemByHref(href: string): NavItem | undefined {
+ 162:   return NAV_ITEMS.find((item) => item.href === href);
+ 163: }
+ 164: 
+ 165: /**
+ 166:  * True when the current page belongs to this menu item. If a more specific
+ 167:  * menu item also matches (for example /settings/api-keys versus /settings),
+ 168:  * only the more specific one counts, so two items never light up together.
+ 169:  */
+ 170: export function isActivePath(pathname: string, href: string): boolean {
+ 171:   const matches = (candidate: string) =>
+ 172:     pathname === candidate || pathname.startsWith(`${candidate}/`);
+ 173: 
+ 174:   if (!matches(href)) {
+ 175:     return false;
+ 176:   }
+ 177: 
+ 178:   return !NAV_ITEMS.some(
+ 179:     (item) => item.href !== href && item.href.startsWith(`${href}/`) && matches(item.href),
+ 180:   );
+ 181: }

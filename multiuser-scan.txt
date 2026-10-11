@@ -1,0 +1,380 @@
+﻿MULTIUSER SCAN
+
+=== 1. Environment variable NAMES (unique, no values) ===
+ALLOWED_EMAILS
+GEMINI_API_KEY
+KEY_ENCRYPTION_SECRET
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+NEXT_PUBLIC_SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+
+=== 2. Supabase and Next versions ===
+"@supabase/ssr": "^0.12.7",
+"@supabase/supabase-js": "^2.117.3",
+"next": "16.4.0",
+"react": "19.3.0",
+
+=== 3. SQL migration files ===
+no supabase folder
+
+=== 4. All app and API routes ===
+src\app\(app)\admin\page.tsx  7276 bytes
+src\app\(app)\bento-builder\page.tsx  264 bytes
+src\app\(app)\calendar\page.tsx  280 bytes
+src\app\(app)\dashboard\page.tsx  3973 bytes
+src\app\(app)\eps-converter\page.tsx  287 bytes
+src\app\(app)\help\page.tsx  12189 bytes
+src\app\(app)\history\page.tsx  983 bytes
+src\app\(app)\image-to-prompt\page.tsx  393 bytes
+src\app\(app)\image-to-psd\page.tsx  253 bytes
+src\app\(app)\metadata\page.tsx  359 bytes
+src\app\(app)\settings\api-keys\page.tsx  1422 bytes
+src\app\(app)\settings\page.tsx  16330 bytes
+src\app\(app)\[tool]\page.tsx  3501 bytes
+src\app\(app)\layout.tsx  407 bytes
+src\app\api\adobe-keywords-search\route.ts  2978 bytes
+src\app\api\api-keys\route.ts  5568 bytes
+src\app\api\convert-eps\route.ts  6035 bytes
+src\app\api\generate-metadata\route.ts  4011 bytes
+src\app\api\generate-prompt\route.ts  3833 bytes
+src\app\api\history\route.ts  3073 bytes
+src\app\api\provider-status\route.ts  551 bytes
+src\app\auth\callback\route.ts  710 bytes
+src\app\auth\google\route.ts  816 bytes
+src\app\auth\signout\route.ts  357 bytes
+src\app\login\page.tsx  1775 bytes
+src\app\layout.tsx  1252 bytes
+src\app\page.tsx  109 bytes
+
+=== 5. Who calls the key store and the access check ===
+src\app\(app)\admin\page.tsx:9  import { getCandidates, getStorageState, listKeys } from "../../../lib/server/keyStore";
+src\app\(app)\admin\page.tsx:17  const access = await getAccess();
+src\app\(app)\admin\page.tsx:62  const gemini = await getCandidates("gemini");
+src\app\(app)\settings\api-keys\page.tsx:13  const access = await getAccess();
+src\app\(app)\layout.tsx:6  const access = await getAccess();
+src\app\api\api-keys\route.ts:1  import { adminApiGuard } from "../../../lib/auth/session";
+src\app\api\api-keys\route.ts:42  return adminApiGuard();
+src\app\api\provider-status\route.ts:1  import { getCandidates } from "../../../lib/server/keyStore";
+src\app\api\provider-status\route.ts:5  const result = await getCandidates("gemini");
+src\lib\auth\session.ts:18  export async function getAccess(): Promise<AccessResult> {
+src\lib\auth\session.ts:100  export async function adminApiGuard(): Promise<Response | null> {
+src\lib\auth\session.ts:101  const access = await getAccess();
+src\lib\server\keyStore.ts:361  export async function recordKeyResult(
+src\lib\server\keyStore.ts:413  export async function getCandidates(provider: ProviderId): Promise<CandidateResult> {
+src\lib\server\runGemini.ts:2  import { getCandidates, recordKeyResult } from "./keyStore";
+src\lib\server\runGemini.ts:6  // Disabled keys are never returned by getCandidates(), so they are never used.
+src\lib\server\runGemini.ts:46  const resolved = await getCandidates("gemini");
+src\lib\server\runGemini.ts:69  await recordKeyResult(candidate.id, "ok");
+src\lib\server\runGemini.ts:74  await recordKeyResult(candidate.id, "rejected");
+src\lib\server\runGemini.ts:76  await recordKeyResult(candidate.id, "rate_limited");
+
+=== 6. Tables the app code reads or writes ===
+src\lib\auth\session.ts:51  .from("profiles")
+src\lib\auth\session.ts:61  .from("profiles")
+src\lib\server\history.ts:85  const { error } = await supabase.from("history").insert({
+src\lib\server\history.ts:115  .from("history")
+src\lib\server\history.ts:150  .from("history")
+src\lib\server\settings.ts:18  .from("app_settings")
+src\lib\server\settings.ts:38  const { error } = await supabase.from("app_settings").upsert({
+
+=== 7. Sign-in and session files ===
+
+----- FILE: src\app\login\page.tsx -----
+   1: import type { Metadata } from "next";
+   2: import { Suspense } from "react";
+   3: import { BrandMark } from "../../components/BrandMark";
+   4: import { getSupabaseEnv } from "../../lib/supabase/env";
+   5: 
+   6: export const metadata: Metadata = { title: "Sign in" };
+   7: 
+   8: const MESSAGES: Record<string, string> = {
+   9:   not_configured: "Sign-in is not configured on this server.",
+  10:   cancelled: "Sign-in was cancelled or did not finish. Please try again.",
+  11:   oauth: "Google sign-in failed. Please try again.",
+  12: };
+  13: 
+  14: async function LoginError({ params }: { params: Promise<{ error?: string }> }) {
+  15:   const { error } = await params;
+  16:   const text = error ? MESSAGES[error] : undefined;
+  17:   return text ? <p role="alert">{text}</p> : null;
+  18: }
+  19: 
+  20: export default function LoginPage({
+  21:   searchParams,
+  22: }: {
+  23:   searchParams: Promise<{ error?: string }>;
+  24: }) {
+  25:   const configured = getSupabaseEnv() !== null;
+  26: 
+  27:   return (
+  28:     <div className="page">
+  29:       <div
+  30:         className="card"
+  31:         style={{
+  32:           maxWidth: 420,
+  33:           margin: "10vh auto",
+  34:           display: "grid",
+  35:           gap: 16,
+  36:           justifyItems: "center",
+  37:           textAlign: "center",
+  38:         }}
+  39:       >
+  40:         <BrandMark size={56} />
+  41:         <h1>METAFORGE AI PRO</h1>
+  42:         <p>Sign in to save your history and use your account.</p>
+  43:         <Suspense fallback={null}>
+  44:           <LoginError params={searchParams} />
+  45:         </Suspense>
+  46:         {configured ? (
+  47:           <form action="/auth/google" method="post">
+  48:             <button type="submit" className="button">
+  49:               Continue with Google
+  50:             </button>
+  51:           </form>
+  52:         ) : (
+  53:           <p>Sign-in is not set up. The Supabase environment variables are missing.</p>
+  54:         )}
+  55:       </div>
+  56:     </div>
+  57:   );
+  58: }
+
+----- FILE: src\app\auth\google\route.ts -----
+   1: import { NextResponse } from "next/server";
+   2: import { getSupabaseEnv } from "../../../lib/supabase/env";
+   3: import { createClient } from "../../../lib/supabase/server";
+   4: 
+   5: export async function POST(request: Request): Promise<Response> {
+   6:   const origin = new URL(request.url).origin;
+   7: 
+   8:   if (!getSupabaseEnv()) {
+   9:     return NextResponse.redirect(`${origin}/login?error=not_configured`, 303);
+  10:   }
+  11: 
+  12:   const supabase = await createClient();
+  13:   const { data, error } = await supabase.auth.signInWithOAuth({
+  14:     provider: "google",
+  15:     options: {
+  16:       redirectTo: `${origin}/auth/callback`,
+  17:       queryParams: { prompt: "select_account" },
+  18:     },
+  19:   });
+  20: 
+  21:   if (error || !data.url) {
+  22:     return NextResponse.redirect(`${origin}/login?error=oauth`, 303);
+  23:   }
+  24:   return NextResponse.redirect(data.url, 303);
+  25: }
+
+----- FILE: src\app\auth\callback\route.ts -----
+   1: import { NextResponse } from "next/server";
+   2: import { createClient } from "../../../lib/supabase/server";
+   3: 
+   4: export async function GET(request: Request): Promise<Response> {
+   5:   const url = new URL(request.url);
+   6:   const code = url.searchParams.get("code");
+   7: 
+   8:   if (url.searchParams.get("error") || !code) {
+   9:     return NextResponse.redirect(`${url.origin}/login?error=cancelled`);
+  10:   }
+  11: 
+  12:   const supabase = await createClient();
+  13:   const { error } = await supabase.auth.exchangeCodeForSession(code);
+  14:   if (error) {
+  15:     return NextResponse.redirect(`${url.origin}/login?error=oauth`);
+  16:   }
+  17:   // Fixed destination, so there is no open redirect.
+  18:   return NextResponse.redirect(`${url.origin}/dashboard`);
+  19: }
+
+----- FILE: src\app\(app)\layout.tsx -----
+   1: import type { ReactNode } from "react";
+   2: import { AppShell } from "../../components/AppShell";
+   3: import { getAccess } from "../../lib/auth/session";
+   4: 
+   5: export default async function AppLayout({ children }: { children: ReactNode }) {
+   6:   const access = await getAccess();
+   7:   const user = access.ok ? { email: access.email, role: access.role } : null;
+   8: 
+   9:   return <AppShell user={user}>{children}</AppShell>;
+  10: }
+
+----- FILE: src\lib\auth\guards.ts -----
+   1: // Small helpers for sign-in rules. The email list is server-side only.
+   2: 
+   3: export function getAllowedEmails(): string[] {
+   4:   return (process.env.ALLOWED_EMAILS ?? "")
+   5:     .split(",")
+   6:     .map((email) => email.trim().toLowerCase())
+   7:     .filter((email) => email.length > 0);
+   8: }
+   9: 
+  10: export function isEmailAllowed(email: string | null | undefined): boolean {
+  11:   if (!email) {
+  12:     return false;
+  13:   }
+  14:   return getAllowedEmails().includes(email.trim().toLowerCase());
+  15: }
+  16: 
+  17: export function safeNextPath(value: string | null | undefined): string {
+  18:   if (
+  19:     typeof value === "string" &&
+  20:     value.startsWith("/") &&
+  21:     !value.startsWith("//") &&
+  22:     !value.includes("\\") &&
+  23:     !value.startsWith("/login") &&
+  24:     !value.startsWith("/auth")
+  25:   ) {
+  26:     return value;
+  27:   }
+  28:   return "/dashboard";
+  29: }
+
+----- FILE: src\app\api\history\route.ts -----
+   1: import { HISTORY_PAGE_SIZE, HistoryError, deleteHistory, getCurrentUser, listHistory, type HistoryKind } from "../../../lib/server/history";
+   2: 
+   3: const ID_PATTERN = /^[0-9a-fA-F-]{36}$/;
+   4: 
+   5: function reply(body: Record<string, unknown>, status = 200): Response {
+   6:   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+   7: }
+   8: 
+   9: function fail(status: number, code: string, message: string): Response {
+  10:   return reply({ success: false, code, message }, status);
+  11: }
+  12: 
+  13: function isSameOrigin(request: Request): boolean {
+  14:   const origin = request.headers.get("origin");
+  15:   if (!origin) {
+  16:     return true;
+  17:   }
+  18:   try {
+  19:     const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  20:     return host === null ? true : new URL(origin).host === host;
+  21:   } catch {
+  22:     return false;
+  23:   }
+  24: }
+  25: 
+  26: export async function GET(request: Request): Promise<Response> {
+  27:   const who = await getCurrentUser();
+  28:   if (!who.configured) {
+  29:     return fail(503, "auth_not_configured", "History needs sign-in and the database, which are not configured.");
+  30:   }
+  31:   if (!who.userId) {
+  32:     return fail(401, "unauthenticated", "Please sign in.");
+  33:   }
+  34: 
+  35:   const params = new URL(request.url).searchParams;
+  36:   const page = Number(params.get("page") ?? "1");
+  37:   if (!Number.isInteger(page) || page < 1 || page > 1000) {
+  38:     return fail(400, "invalid_request", "Invalid page number.");
+  39:   }
+  40:   const kindParam = params.get("kind");
+  41:   if (kindParam !== null && kindParam !== "metadata" && kindParam !== "prompt") {
+  42:     return fail(400, "invalid_request", "Invalid history type.");
+  43:   }
+  44:   const kind: HistoryKind | null = kindParam;
+  45: 
+  46:   try {
+  47:     const { entries, total } = await listHistory(who.userId, { kind, page });
+  48:     return reply({ success: true, entries, total, page, pageSize: HISTORY_PAGE_SIZE });
+  49:   } catch (error) {
+  50:     if (error instanceof HistoryError) {
+  51:       return fail(500, "history_unavailable", "History could not be read. Check that the history SQL was run in Supabase.");
+  52:     }
+  53:     return fail(500, "internal_error", "Something went wrong. Please try again.");
+  54:   }
+  55: }
+  56: 
+  57: export async function DELETE(request: Request): Promise<Response> {
+  58:   if (!isSameOrigin(request)) {
+  59:     return fail(403, "forbidden", "This request was not allowed.");
+  60:   }
+  61: 
+  62:   const who = await getCurrentUser();
+  63:   if (!who.configured) {
+  64:     return fail(503, "auth_not_configured", "History needs sign-in and the database, which are not configured.");
+  65:   }
+  66:   if (!who.userId) {
+  67:     return fail(401, "unauthenticated", "Please sign in.");
+  68:   }
+  69: 
+  70:   const id = new URL(request.url).searchParams.get("id") ?? "";
+  71:   if (!ID_PATTERN.test(id)) {
+  72:     return fail(400, "invalid_request", "A valid entry id is required.");
+  73:   }
+  74: 
+  75:   try {
+  76:     const removed = await deleteHistory(who.userId, id);
+  77:     if (!removed) {
+  78:       return fail(404, "not_found", "That entry no longer exists.");
+  79:     }
+  80:     return reply({ success: true });
+  81:   } catch {
+  82:     return fail(500, "history_unavailable", "The entry could not be deleted. Try again.");
+  83:   }
+  84: }
+
+----- FILE: src\app\api\generate-metadata\route.ts -----
+   1: import { randomUUID } from "node:crypto";
+   2: import {
+   3:   effectiveKeywordCount,
+   4:   getPlatformProfile,
+   5:   isPlatformId,
+   6: } from "../../../lib/platforms/profiles";
+   7: import { isKnownGeminiModel } from "../../../lib/providers/gemini-models";
+   8: import { generateStrictMetadata } from "../../../lib/server/generateStrictMetadata";
+   9: import { getCurrentUser, saveHistory } from "../../../lib/server/history";
+  10: import { checkRateLimit } from "../../../lib/server/rateLimit";
+  11: import {
+  12:   cleanFileName,
+  13:   formField,
+  14:   isSameOrigin,
+  15:   jsonError,
+  16:   readUploadedImage,
+  17: } from "../../../lib/server/requestUtils";
+  18: 
+  19: const RATE_LIMIT_PER_MINUTE = 120;
+  20: 
+  21: export async function POST(request: Request): Promise<Response> {
+  22:   const requestId = randomUUID();
+  23: 
+  24:   if (!isSameOrigin(request)) {
+  25:     return jsonError(403, "forbidden", "This request was not allowed.", false, requestId);
+  26:   }
+  27: 
+  28:   const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  29:   const limit = checkRateLimit(`generate:${client}`, RATE_LIMIT_PER_MINUTE, 60_000);
+  30:   if (!limit.allowed) {
+  31:     return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", true, requestId, {
+  32:       "Retry-After": String(limit.retryAfterSeconds),
+  33:     });
+  34:   }
+  35: 
+  36:   const who = await getCurrentUser();
+  37:   if (who.configured && !who.userId) {
+  38:     return jsonError(401, "unauthenticated", "Please sign in.", false, requestId);
+  39:   }
+  40: 
+  41:   let form: FormData;
+  42:   try {
+  43:     form = await request.formData();
+  44:   } catch {
+  45:     return jsonError(400, "invalid_request", "The upload could not be read.", false, requestId);
+  46:   }
+  47: 
+  48:   const model = formField(form, "model");
+  49:   const platform = formField(form, "platform");
+  50:   const requested = Number(formField(form, "keywordCount"));
+  51: 
+  52:   if (formField(form, "provider") !== "gemini") {
+  53:     return jsonError(400, "unsupported_provider", "Only Google Gemini is connected so far.", false, requestId);
+  54:   }
+  55:   if (!isKnownGeminiModel(model)) {
+  56:     return jsonError(400, "unsupported_model", "That model is not in the supported list.", false, requestId);
+  57:   }
+  58:   if (!isPlatformId(platform)) {
+  59:     return jsonError(400, "invalid_request", "Unknown platform.", false, requestId);
+  60:   }
+... (truncated at 60 lines)

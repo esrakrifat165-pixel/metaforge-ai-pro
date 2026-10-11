@@ -7,11 +7,17 @@ import { Sidebar } from "./Sidebar";
 import { ThemeToggle } from "./ThemeToggle";
 
 const SIDEBAR_ID = "app-sidebar";
+const NAME_MAX = 18;
 
 export type ShellUser = {
   email: string;
   role: "user" | "admin";
+  fullName?: string | null;
 } | null;
+
+function shorten(text: string): string {
+  return text.length > NAME_MAX ? `${text.slice(0, NAME_MAX - 1)}\u2026` : text;
+}
 
 export function AppShell({ children, user }: { children: ReactNode; user: ShellUser }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -30,13 +36,13 @@ export function AppShell({ children, user }: { children: ReactNode; user: ShellU
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [menuOpen]);
 
-  const displayName = user ? user.email.split("@")[0] : "Guest";
-  const initial = (user ? user.email.charAt(0) : "G").toUpperCase();
-  const subtitle = user
-    ? user.role === "admin"
-      ? "Administrator"
-      : "Signed in"
-    : "Not signed in";
+  const fullName = user?.fullName?.trim() ?? "";
+  const displayName = user ? (fullName.length > 0 ? fullName : user.email.split("@")[0]) : "Guest";
+  const initial = (displayName.charAt(0) || "G").toUpperCase();
+  const subtitle = user ? (user.role === "admin" ? "Administrator" : "User") : "Not signed in";
+  const chipTitle = user
+    ? `${displayName} (${user.email}) - ${subtitle}`
+    : "Sign-in is not set up yet";
 
   return (
     <div className="app-shell">
@@ -87,12 +93,12 @@ export function AppShell({ children, user }: { children: ReactNode; user: ShellU
             >
               <Icon name="bell" />
             </button>
-            <div className="user-chip" title={user ? user.email : "Sign-in is not set up yet"}>
+            <div className="user-chip" title={chipTitle}>
               <span className="user-avatar" aria-hidden="true">
                 {initial}
               </span>
               <span className="user-text">
-                <strong>{displayName}</strong>
+                <strong>{shorten(displayName)}</strong>
                 <small>{subtitle}</small>
               </span>
             </div>

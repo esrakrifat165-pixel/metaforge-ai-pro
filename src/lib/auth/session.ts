@@ -6,7 +6,13 @@ import { isEmailAllowed } from "./guards";
 // The role comes from public.profiles, which the browser cannot change.
 
 export type AccessResult =
-  | { ok: true; userId: string; email: string; role: "user" | "admin" }
+  | {
+      ok: true;
+      userId: string;
+      email: string;
+      fullName: string | null;
+      role: "user" | "admin";
+    }
   | { ok: false; status: 401 | 403 | 503; code: string; message: string };
 
 export async function getAccess(): Promise<AccessResult> {
@@ -39,13 +45,28 @@ export async function getAccess(): Promise<AccessResult> {
       };
     }
 
-    const { data, error } = await supabase
+    // Read the role and the display name. If the name column cannot be read,
+    // fall back to the role alone so sign-in keeps working.
+    const full = await supabase
       .from("profiles")
-      .select("role")
+      .select("role, full_name")
       .eq("id", user.id)
       .maybeSingle();
 
-    if (error) {
+    let row: unknown = full.data;
+    let failed = full.error !== null;
+
+    if (failed) {
+      const basic = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+      row = basic.data;
+      failed = basic.error !== null;
+    }
+
+    if (failed) {
       return {
         ok: false,
         status: 503,
@@ -54,11 +75,16 @@ export async function getAccess(): Promise<AccessResult> {
       };
     }
 
+    const record: Record<string, unknown> =
+      typeof row === "object" && row !== null ? (row as Record<string, unknown>) : {};
+    const rawName = typeof record.full_name === "string" ? record.full_name.trim() : "";
+
     return {
       ok: true,
       userId: user.id,
       email: user.email ?? "",
-      role: data?.role === "admin" ? "admin" : "user",
+      fullName: rawName.length > 0 ? rawName.slice(0, 80) : null,
+      role: record.role === "admin" ? "admin" : "user",
     };
   } catch {
     return {
