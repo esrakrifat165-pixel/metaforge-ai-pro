@@ -6,6 +6,7 @@
 // element, which browsers do not allow to run scripts or load external resources.
 // EPS and AI files cannot be rendered in the browser (see prepareImageForUpload).
 
+import { convertEps, isEpsFile } from "./eps";
 import { isSvgFile, rasterizeSvg } from "./vector";
 
 const MAX_EDGE = 1600;
@@ -63,9 +64,10 @@ async function renderToJpeg(source: CanvasImageSource, width: number, height: nu
 }
 
 async function prepareRaster(file: File): Promise<Blob> {
+  const source: Blob = isEpsFile(file) ? await convertEps(file) : file;
   let bitmap: ImageBitmap;
   try {
-    bitmap = await createImageBitmap(file);
+    bitmap = await createImageBitmap(source);
   } catch {
     throw new Error("This browser could not read the image.");
   }

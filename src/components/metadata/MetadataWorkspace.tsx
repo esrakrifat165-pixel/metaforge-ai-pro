@@ -45,6 +45,7 @@ import { ResultField } from "./ResultField";
 import { ThumbStrip } from "./ThumbStrip";
 import { ToolIcon, type ToolIconName } from "./ToolIcons";
 import { useMetadataQueue, type GenResult, type GenStatus } from "./useMetadataQueue";
+import { convertEps, isEpsFile } from "./eps";
 import "./generate.css";
 
 const PROVIDER_OPTIONS = [
@@ -379,13 +380,30 @@ export function MetadataWorkspace() {
 
     if (accepted.length > 0) {
       setItems((previous) => [...previous, ...accepted]);
+      accepted.filter((entry) => isEpsFile(entry.file)).forEach((entry) => void previewEps(entry));
       if (items.length === 0) {
         setSelectedId(accepted[0].id);
       }
       showNotice("success", `Added ${plural(accepted.length, "image")}.`);
     }
   }
-
+  // EPS files cannot be shown by the browser, so the converted JPEG is used as the preview.
+  async function previewEps(entry: ImageItem) {
+    try {
+      const blob = await convertEps(entry.file);
+      if (!itemsRef.current.some((existing) => existing.id === entry.id)) {
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      setItems((previous) =>
+        previous.map((existing) => (existing.id === entry.id ? { ...existing, url } : existing)),
+      );
+      URL.revokeObjectURL(entry.url);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : `${entry.file.name}: conversion failed.`;
+      setUploadErrors((previous) => (previous.includes(text) ? previous : [...previous, text]));
+    }
+  }
   function handleInputChange(event: ChangeEvent<HTMLInputElement>) {
     if (event.target.files) {
       handleFiles(event.target.files);
@@ -690,7 +708,7 @@ export function MetadataWorkspace() {
         type="file"
         hidden
         multiple
-        accept={`${ACCEPT_ATTRIBUTE},.svg,image/svg+xml`}
+        accept={`${ACCEPT_ATTRIBUTE},.svg,image/svg+xml,.eps,application/postscript`}
         onChange={handleInputChange}
       />
 
