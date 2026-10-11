@@ -1,0 +1,186 @@
+Result rows report 2026-10-11 16:06:48
+
+== Git status ==
+ M next.config.ts
+ M src/app/(app)/layout.tsx
+ M src/app/(app)/settings/api-keys/page.tsx
+ M src/app/api/generate-metadata/route.ts
+ M src/components/AppShell.tsx
+ M src/components/Sidebar.tsx
+ M src/components/ThemeProvider.tsx
+ M src/components/api-keys/ApiKeyManager.tsx
+ M src/components/metadata/MetadataWorkspace.tsx
+ M src/components/metadata/generate.css
+ M src/components/metadata/useMetadataQueue.ts
+ M src/lib/navigation.ts
+ M src/lib/server/gemini.ts
+ M src/lib/server/keyStore.ts
+ M src/lib/supabase/server.ts
+?? .recovery/
+?? audit.txt
+?? metaforge-audit.zip
+?? metaforge-audit/
+?? next.config.ts.backup
+?? recovery-report.txt
+?? result-rows-report.txt
+?? results-diagnosis.txt
+?? scripts/
+?? src/app/(app)/admin/
+?? src/app/(app)/history/
+?? src/app/(app)/image-to-prompt/
+?? src/app/api/generate-metadata/route.ts.backup
+?? src/app/api/generate-prompt/
+?? src/app/api/history/
+?? src/app/auth/
+?? src/app/login/
+?? src/components/SearchBox.css
+?? src/components/SearchBox.tsx
+?? src/components/ThemeProvider.tsx.backup
+?? src/components/history/
+?? src/components/image-to-prompt/
+?? src/components/jobs/
+?? src/lib/auth/session.ts
+?? src/lib/metadata/strict.ts
+?? src/lib/prompt/
+?? src/lib/server/generateStrictMetadata.ts
+?? src/lib/server/history.ts
+?? src/lib/server/requestUtils.ts
+?? src/lib/server/runGemini.ts
+
+== Encoding of the two workspace files ==
+  MetadataWorkspace.tsx: valid UTF-8, 43601 bytes
+  ImageToPromptWorkspace.tsx: valid UTF-8, 29963 bytes
+
+== Backup files (they are compiled by tsc if they sit inside the project) ==
+  none found inside the project (or already moved to .recovery)
+
+== Old multi-column result CSS (mw-rc-grid) ==
+  none
+
+== Applying ==
+  wrote src\components\metadata\result-rows.css (UTF-8 without BOM)
+  MetadataWorkspace: section inserted above the action bar. Backup saved in .recovery\ (MetadataWorkspace.tsx.20261011-160648.pre-result-rows).
+  ImageToPromptWorkspace: the section is already there (found 'ip-all-title'). No insertion needed.
+  metadata page: stylesheet import added
+  image-to-prompt page: stylesheet import added
+
+== Checks (real results) ==
+
+---- tsc ----
+
+RESULT: tsc PASS
+
+---- lint ----
+
+> metaforge-web@0.1.0 lint
+> eslint
+
+
+C:\Projects\metaforge-ai-pro\metaforge-web\.recovery\MetadataWorkspace.backup.tsx
+  1:0  error  Parsing error: File appears to be binary
+
+??? 1 problem (1 error, 0 warnings)
+
+
+RESULT: lint FAIL (exit code 1)
+
+---- build ----
+
+> metaforge-web@0.1.0 build
+> next build
+
+??? Next.js 16.4.0 (Turbopack)
+- Environments: .env.local
+??? Running next.config.ts took 47ms
+
+  Creating an optimized production build ...
+??? Compiled successfully in 7.8s
+  Running TypeScript ...
+  Finished TypeScript in 10.5s ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/27) ...
+  Generating static pages using 7 workers (6/27) 
+  Generating static pages using 7 workers (13/27) 
+  Generating static pages using 7 workers (20/27) 
+??? Generating static pages using 7 workers (27/27) in 600ms
+  Finalizing page optimization ...
+
+Route (app)
+??? ??? /
+??? ??? /_not-found
+??? ?? /[tool]
+??? ?? /admin
+??? ?? /api/api-keys
+??? ?? /api/generate-metadata
+??? ?? /api/generate-prompt
+??? ?? /api/history
+??? ?? /api/provider-status
+??? ?? /auth/callback
+??? ?? /auth/google
+??? ?? /auth/signout
+??? ?? /dashboard
+??? ?? /history
+??? ?? /image-to-prompt
+??? ?? /login
+??? ?? /metadata
+??? ?? /settings/api-keys
+
+
+?? Proxy (Middleware)
+
+???  (Static)   prerendered as static content
+??  (Dynamic)  server-rendered on demand
+
+
+RESULT: build PASS
+
+== Files this script may have changed ==
+ M next.config.ts
+ M src/app/(app)/layout.tsx
+ M src/app/(app)/metadata/page.tsx
+ M src/app/(app)/settings/api-keys/page.tsx
+ M src/app/api/generate-metadata/route.ts
+ M src/components/AppShell.tsx
+ M src/components/Sidebar.tsx
+ M src/components/ThemeProvider.tsx
+ M src/components/api-keys/ApiKeyManager.tsx
+ M src/components/metadata/MetadataWorkspace.tsx
+ M src/components/metadata/generate.css
+ M src/components/metadata/useMetadataQueue.ts
+ M src/lib/navigation.ts
+ M src/lib/server/gemini.ts
+ M src/lib/server/keyStore.ts
+ M src/lib/supabase/server.ts
+?? .recovery/
+?? audit.txt
+?? metaforge-audit.zip
+?? metaforge-audit/
+?? next.config.ts.backup
+?? recovery-report.txt
+?? result-rows-report.txt
+?? results-diagnosis.txt
+?? scripts/
+?? src/app/(app)/admin/
+?? src/app/(app)/history/
+?? src/app/(app)/image-to-prompt/
+?? src/app/api/generate-metadata/route.ts.backup
+?? src/app/api/generate-prompt/
+?? src/app/api/history/
+?? src/app/auth/
+?? src/app/login/
+?? src/components/SearchBox.css
+?? src/components/SearchBox.tsx
+?? src/components/ThemeProvider.tsx.backup
+?? src/components/history/
+?? src/components/image-to-prompt/
+?? src/components/jobs/
+?? src/components/metadata/result-rows.css
+?? src/lib/auth/session.ts
+?? src/lib/metadata/strict.ts
+?? src/lib/prompt/
+?? src/lib/server/generateStrictMetadata.ts
+?? src/lib/server/history.ts
+?? src/lib/server/requestUtils.ts
+?? src/lib/server/runGemini.ts
+
+Not committed, not pushed. Do not commit .recovery\ or result-rows-report.txt.

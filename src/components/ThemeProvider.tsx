@@ -4,8 +4,9 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
-  useSyncExternalStore,
+  useState,
   type ReactNode,
 } from "react";
 
@@ -23,30 +24,51 @@ type ThemeContextValue = {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-function subscribe(onChange: () => void) {
-  window.addEventListener(CHANGE_EVENT, onChange);
-  return () => window.removeEventListener(CHANGE_EVENT, onChange);
-}
-
 function getSnapshot(): Theme {
-  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  if (typeof document === "undefined") {
+    return "dark";
+  }
+
+  return document.documentElement.dataset.theme === "light"
+    ? "light"
+    : "dark";
 }
 
-function getServerSnapshot(): Theme {
-  return "dark";
-}
+export function ThemeProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  // Keep the server and initial client render consistent.
+  // The actual browser theme is synchronized after mounting.
+  const [theme, setThemeState] = useState<Theme>("dark");
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  useEffect(() => {
+    function syncTheme() {
+      setThemeState(getSnapshot());
+    }
+
+    // Respect the theme applied by the inline script in layout.tsx.
+    syncTheme();
+
+    window.addEventListener(CHANGE_EVENT, syncTheme);
+
+    return () => {
+      window.removeEventListener(CHANGE_EVENT, syncTheme);
+    };
+  }, []);
 
   const setTheme = useCallback((next: Theme) => {
+    // Update the document immediately so existing CSS responds.
     document.documentElement.dataset.theme = next;
+
     try {
       window.localStorage.setItem(STORAGE_KEY, next);
     } catch {
-      // Storage can be blocked by browser settings. The theme still changes
-      // for this visit, it just will not be remembered.
+      // Storage may be blocked. The theme still works for this visit.
     }
+
+    setThemeState(next);
     window.dispatchEvent(new Event(CHANGE_EVENT));
   }, []);
 
@@ -55,17 +77,27 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [setTheme]);
 
   const value = useMemo(
-    () => ({ theme, setTheme, toggleTheme }),
+    () => ({
+      theme,
+      setTheme,
+      toggleTheme,
+    }),
     [theme, setTheme, toggleTheme],
   );
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return (
+    <ThemeContext.Provider value={value}>
+      {children}
+    </ThemeContext.Provider>
+  );
 }
 
 export function useTheme(): ThemeContextValue {
   const context = useContext(ThemeContext);
+
   if (!context) {
     throw new Error("useTheme must be used inside <ThemeProvider>.");
   }
+
   return context;
 }

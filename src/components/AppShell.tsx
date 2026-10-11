@@ -1,19 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { usePathname } from "next/navigation";
 import { Icon } from "./Icons";
+import { SearchBox } from "./SearchBox";
 import { Sidebar } from "./Sidebar";
 import { ThemeToggle } from "./ThemeToggle";
-import { NAV_ITEMS, isActivePath } from "../lib/navigation";
 
 const SIDEBAR_ID = "app-sidebar";
 
-export function AppShell({ children }: { children: ReactNode }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const pathname = usePathname();
+export type ShellUser = {
+  email: string;
+  role: "user" | "admin";
+} | null;
 
-  const currentItem = NAV_ITEMS.find((item) => isActivePath(pathname, item.href));
+export function AppShell({ children, user }: { children: ReactNode; user: ShellUser }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
   useEffect(() => {
@@ -29,13 +30,26 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [menuOpen]);
 
+  const displayName = user ? user.email.split("@")[0] : "Guest";
+  const initial = (user ? user.email.charAt(0) : "G").toUpperCase();
+  const subtitle = user
+    ? user.role === "admin"
+      ? "Administrator"
+      : "Signed in"
+    : "Not signed in";
+
   return (
     <div className="app-shell">
       <a href="#main-content" className="skip-link">
         Skip to main content
       </a>
 
-      <Sidebar id={SIDEBAR_ID} open={menuOpen} onNavigate={closeMenu} />
+      <Sidebar
+        id={SIDEBAR_ID}
+        open={menuOpen}
+        isAdmin={user?.role === "admin"}
+        onNavigate={closeMenu}
+      />
 
       {menuOpen ? (
         <button
@@ -48,26 +62,41 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="app-main">
         <header className="topbar">
-          <div className="topbar-left">
+          <button
+            type="button"
+            className="icon-button menu-button"
+            aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-expanded={menuOpen}
+            aria-controls={SIDEBAR_ID}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <Icon name={menuOpen ? "close" : "menu"} />
+          </button>
+
+          <SearchBox />
+
+          <div className="topbar-actions">
+            <ThemeToggle />
             <button
               type="button"
-              className="icon-button menu-button"
-              aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
-              aria-expanded={menuOpen}
-              aria-controls={SIDEBAR_ID}
-              onClick={() => setMenuOpen((open) => !open)}
+              className="icon-button"
+              disabled
+              aria-disabled="true"
+              aria-label="Notifications (not available yet)"
+              title="Notifications are not available yet"
             >
-              <Icon name={menuOpen ? "close" : "menu"} />
+              <Icon name="bell" />
             </button>
-            <p className="crumb">
-              <span className="crumb-muted">Workspace</span>
-              <span className="crumb-muted" aria-hidden="true">
-                /
+            <div className="user-chip" title={user ? user.email : "Sign-in is not set up yet"}>
+              <span className="user-avatar" aria-hidden="true">
+                {initial}
               </span>
-              <strong>{currentItem?.label ?? "METAFORGE AI PRO"}</strong>
-            </p>
+              <span className="user-text">
+                <strong>{displayName}</strong>
+                <small>{subtitle}</small>
+              </span>
+            </div>
           </div>
-          <ThemeToggle />
         </header>
 
         <main id="main-content" tabIndex={-1}>

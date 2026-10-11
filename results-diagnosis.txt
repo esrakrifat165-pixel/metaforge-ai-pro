@@ -1,0 +1,34 @@
+Results diagnosis 2026-10-11 16:05:43
+
+== Encoding ==
+  MetadataWorkspace.tsx: valid UTF-8, 43601 bytes
+
+== What the component contains ==
+  'All Image Results' sections: 0
+  section heading (mw-all-title): line 
+  section condition: line 
+  resultTab state: line 185
+  upload and settings grid (mw-grid): line 739
+  action bar (mw-bottom): line 1183
+  queue hook: line 221
+  metaById state: line 189
+  result handler: line 209
+  results are stored under the image id ([id]) in handleResult: True
+  rows read results with metaById[item.id]: True
+
+== Is the section where it can be seen? ==
+  The section is NOT in this file. This is the cause: there is nothing to render.
+
+== Styles ==
+  result-rows.css exists: False
+  result-rows.css makes the list single-column: False
+  result-rows.css is imported by: nothing
+  old multi-column rules (mw-rc-grid): none
+  generate.css lines mentioning mw-rc: 2, 7, 13, 24, 29, 43, 47, 54, 64, 69, 74, 75, 80, 89, 95, 103, 118, 124, 130, 138, 143
+  MetadataWorkspace.tsx imports result-rows.css itself: False
+
+== Verdict ==
+CAUSE: the All Image Results section is not in MetadataWorkspace.tsx.
+FIX: run  powershell -ExecutionPolicy Bypass -File scripts\result-rows.ps1  (it adds the section above the action bar, writes the stylesheet and runs the checks).
+
+Report saved to results-diagnosis.txt. Not committed, not pushed.

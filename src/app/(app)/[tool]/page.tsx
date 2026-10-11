@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { EmptyState } from "../../../components/EmptyState";
+import BackgroundRemoverWorkspace from "../../../components/background-remover/BackgroundRemoverWorkspace";
+import AdobeKeywordsSearch from "../../../components/adobe-keywords-search/AdobeKeywordsSearch";
 import { NAV_ITEMS, getNavItemByHref, type NavItem } from "../../../lib/navigation";
 
+// METAFORGE-ADOBE-KEYWORDS-SEARCH
 // Any address that is not in the list below shows a normal 404 page.
 
 type ToolPageProps = {
@@ -48,6 +51,30 @@ export default async function ToolPlaceholderPage({ params }: ToolPageProps) {
     notFound();
   }
 
+  if (item.href === "/adobe-keywords-search" || item.href === "/keywords" || item.label.toLowerCase().includes("adobe keywords")) {
+    return (
+      <div className="page">
+        <header className="page-header">
+          <span className="eyebrow">Adobe Stock Tools</span>
+          <h1>{item.label}</h1>
+          <p>Generate an Adobe Stock title, description and 50 unique keywords from an image.</p>
+        </header>
+        <AdobeKeywordsSearch />
+      </div>
+    );
+  }
+  if (item.href === "/background-remover") {
+    return (
+      <div className="page">
+        <header className="page-header">
+          <span className="eyebrow">Creative Tools</span>
+          <h1>{item.label}</h1>
+          <p>Remove image backgrounds and export transparent PNG files.</p>
+        </header>
+        <BackgroundRemoverWorkspace />
+      </div>
+    );
+  }
   return (
     <div className="page">
       <header className="page-header">
@@ -72,3 +99,4 @@ export default async function ToolPlaceholderPage({ params }: ToolPageProps) {
     </div>
   );
 }
+

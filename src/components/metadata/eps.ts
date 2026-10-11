@@ -1,7 +1,7 @@
 // Browser side of EPS support: checks the file's contents, asks the server to render it
 // to a JPEG, and remembers the result so each file is converted only once.
 
-const MAX_EPS_BYTES = 4 * 1024 * 1024;
+const MAX_EPS_BYTES = 8 * 1024 * 1024;
 const cache = new WeakMap<File, Promise<Blob>>();
 
 // Conversions run one at a time because Ghostscript is heavy.
@@ -33,7 +33,7 @@ async function run(file: File): Promise<Blob> {
     throw fail(file, "the file is empty.");
   }
   if (file.size > MAX_EPS_BYTES) {
-    throw fail(file, "the EPS is larger than 4 MB, which is the conversion limit.");
+    throw fail(file, "the EPS is larger than 8 MB, which is the conversion limit.");
   }
   if (!(await looksLikeEps(file))) {
     throw fail(file, "this is not a valid EPS file (its contents do not start like an EPS).");

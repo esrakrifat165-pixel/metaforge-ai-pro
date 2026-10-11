@@ -1,0 +1,1352 @@
+﻿METAFORGE AI PRO - ADOBE KEYWORDS INTEGRATION REVIEW
+
+
+========== FILE: src\app\(app)\[tool]\page.tsx ==========
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { EmptyState } from "../../../components/EmptyState";
+import BackgroundRemoverWorkspace from "../../../components/background-remover/BackgroundRemoverWorkspace";
+import { NAV_ITEMS, getNavItemByHref, type NavItem } from "../../../lib/navigation";
+
+// Any address that is not in the list below shows a normal 404 page.
+
+type ToolPageProps = {
+  params: Promise<{ tool: string }>;
+};
+
+// /dashboard has its own page. /admin stays hidden until real admin checks exist.
+const EXCLUDED_HREFS = new Set(["/dashboard", "/admin"]);
+
+// This page only serves one-part addresses such as /history.
+// Two-part addresses such as /settings/api-keys have their own page folders.
+function isSingleSegment(href: string): boolean {
+  return href.indexOf("/", 1) === -1;
+}
+
+function getPlaceholderItem(slug: string): NavItem | undefined {
+  const item = getNavItemByHref(`/${slug}`);
+  if (!item || EXCLUDED_HREFS.has(item.href) || !isSingleSegment(item.href)) {
+    return undefined;
+  }
+  return item;
+}
+
+export function generateStaticParams() {
+  return NAV_ITEMS.filter(
+    (item) => !EXCLUDED_HREFS.has(item.href) && isSingleSegment(item.href),
+  ).map((item) => ({
+    tool: item.href.slice(1),
+  }));
+}
+
+export async function generateMetadata({ params }: ToolPageProps): Promise<Metadata> {
+  const { tool } = await params;
+  const item = getPlaceholderItem(tool);
+  return { title: item ? item.label : "Page not found" };
+}
+
+export default async function ToolPlaceholderPage({ params }: ToolPageProps) {
+  const { tool } = await params;
+  const item = getPlaceholderItem(tool);
+
+  if (!item) {
+    notFound();
+  }
+
+  if (item.href === "/background-remover") {
+    return (
+      <div className="page">
+        <header className="page-header">
+          <span className="eyebrow">Creative Tools</span>
+          <h1>{item.label}</h1>
+          <p>Remove image backgrounds and export transparent PNG files.</p>
+        </header>
+        <BackgroundRemoverWorkspace />
+      </div>
+    );
+  }
+  return (
+    <div className="page">
+      <header className="page-header">
+        <span className="eyebrow">Planned: {item.phase}</span>
+        <h1>{item.label}</h1>
+        <p>{item.description}</p>
+      </header>
+
+      <EmptyState
+        icon={item.icon}
+        title="Not available yet"
+        description={`${item.label} is planned for ${item.phase}. Nothing on this page processes data yet.`}
+        action={{ href: "/dashboard", label: "Back to dashboard" }}
+      />
+
+      {item.href === "/settings" ? (
+        <p className="section-note">
+          The light and dark theme switch in the top bar already works. Provider and
+          model settings arrive in later phases.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+
+========== FILE: src\app\api\generate-metadata\route.ts ==========
+import { randomUUID } from "node:crypto";
+import {
+  effectiveKeywordCount,
+  getPlatformProfile,
+  isPlatformId,
+} from "../../../lib/platforms/profiles";
+import { isKnownGeminiModel } from "../../../lib/providers/gemini-models";
+import { generateStrictMetadata } from "../../../lib/server/generateStrictMetadata";
+import { getCurrentUser, saveHistory } from "../../../lib/server/history";
+import { checkRateLimit } from "../../../lib/server/rateLimit";
+import {
+  cleanFileName,
+  formField,
+  isSameOrigin,
+  jsonError,
+  readUploadedImage,
+} from "../../../lib/server/requestUtils";
+
+const RATE_LIMIT_PER_MINUTE = 120;
+
+export async function POST(request: Request): Promise<Response> {
+  const requestId = randomUUID();
+
+  if (!isSameOrigin(request)) {
+    return jsonError(403, "forbidden", "This request was not allowed.", false, requestId);
+  }
+
+  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const limit = checkRateLimit(`generate:${client}`, RATE_LIMIT_PER_MINUTE, 60_000);
+  if (!limit.allowed) {
+    return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", true, requestId, {
+      "Retry-After": String(limit.retryAfterSeconds),
+    });
+  }
+
+  const who = await getCurrentUser();
+  if (who.configured && !who.userId) {
+    return jsonError(401, "unauthenticated", "Please sign in.", false, requestId);
+  }
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return jsonError(400, "invalid_request", "The upload could not be read.", false, requestId);
+  }
+
+  const model = formField(form, "model");
+  const platform = formField(form, "platform");
+  const receivedCount = formField(form, "keywordCount");
+  const requested = Number(receivedCount);
+
+  if (formField(form, "provider") !== "gemini") {
+    return jsonError(400, "unsupported_provider", "Only Google Gemini is connected so far.", false, requestId);
+  }
+  if (!isKnownGeminiModel(model)) {
+    return jsonError(400, "unsupported_model", "That model is not in the supported list.", false, requestId);
+  }
+  if (!isPlatformId(platform)) {
+    return jsonError(400, "invalid_request", "Unknown platform.", false, requestId);
+  }
+  if (receivedCount.trim() === "" || !Number.isInteger(requested) || requested < 1 || requested > 50) {
+    return jsonError(
+      400,
+      "invalid_request",
+      `The keyword count must be a whole number from 1 to 50 (received "${receivedCount.slice(0, 20)}").`,
+      false,
+      requestId,
+    );
+  }
+
+  const upload = await readUploadedImage(form, requestId);
+  if (!upload.ok) {
+    return upload.response;
+  }
+
+  const profile = getPlatformProfile(platform);
+  const count = effectiveKeywordCount(profile, requested);
+
+  const generated = await generateStrictMetadata({
+    model,
+    mimeType: upload.mimeType,
+    base64: Buffer.from(upload.bytes).toString("base64"),
+    count,
+  });
+
+  if (!generated.ok) {
+    return jsonError(
+      generated.status,
+      generated.code,
+      generated.message,
+      generated.retryable,
+      requestId,
+      generated.retryAfterSeconds !== null
+        ? { "Retry-After": String(generated.retryAfterSeconds) }
+        : undefined,
+    );
+  }
+
+  const { title, description, keywords } = generated.data;
+  const warnings = generated.warnings;
+
+  let saved = false;
+  if (who.userId) {
+    saved = await saveHistory(who.userId, {
+      kind: "metadata",
+      fileName: cleanFileName(formField(form, "fileName")),
+      provider: "gemini",
+      model,
+      platform: profile.id,
+      result: { title, description, keywords, warnings },
+    });
+  }
+
+  return Response.json(
+    {
+      success: true,
+      data: { title, description, keywords, warnings },
+      keywordTarget: count,
+      provider: "gemini",
+      model,
+      platform: profile.id,
+      saved,
+      requestId,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+
+========== FILE: src\lib\server\keyStore.ts ==========
+import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scryptSync } from "node:crypto";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { MAX_KEYS_PER_PROVIDER, PROVIDERS, type ProviderId } from "../providers/catalog";
+import type { LastResult, PublicKey, StorageState } from "../keys/shared";
+import { getSupabaseEnv } from "../supabase/env";
+
+// SERVER ONLY. Never import this file from a client component.
+//
+// Keys are encrypted with AES-256-GCM (secret: KEY_ENCRYPTION_SECRET) and stored in the
+// Supabase table public.api_keys. The table has row-level security and no policies, so
+// only the server, using SUPABASE_SERVICE_ROLE_KEY, can read or write it.
+// Callers must check admin rights before using listKeys/addKey/setEnabled/removeKey.
+
+type EncryptedSecret = { iv: string; tag: string; data: string };
+
+type PublicRow = {
+  id: string;
+  provider: ProviderId;
+  label: string;
+  last4: string;
+  enabled: boolean;
+  created_at: string;
+  last_result: LastResult;
+  last_used_at: string | null;
+};
+
+type SecretRow = PublicRow & { secret: EncryptedSecret };
+
+export type KeyResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; code: string; message: string; status: number };
+
+export type Candidate = { id: string; label: string; apiKey: string };
+
+export type CandidateResult =
+  | { ok: true; source: "store" | "env"; candidates: Candidate[] }
+  | { ok: false; code: "no_enabled_key" | "not_configured" | "key_store_error"; message: string };
+
+export class KeyStoreError extends Error {}
+
+const TABLE = "api_keys";
+const PUBLIC_COLUMNS = "id,provider,label,last4,enabled,created_at,last_result,last_used_at";
+const ENV_NAMES: Partial<Record<ProviderId, string[]>> = {
+  gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+};
+const RECENT_FAILURE_MS = 2 * 60 * 1000;
+
+/* ---------- Guards ---------- */
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isEncrypted(value: unknown): value is EncryptedSecret {
+  return (
+    isRecord(value) &&
+    typeof value.iv === "string" &&
+    typeof value.tag === "string" &&
+    typeof value.data === "string"
+  );
+}
+
+function isLastResult(value: unknown): value is LastResult {
+  return value === null || value === "ok" || value === "rejected" || value === "rate_limited";
+}
+
+function isPublicRow(value: unknown): value is PublicRow {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.provider === "string" &&
+    PROVIDERS.some((provider) => provider.id === value.provider) &&
+    typeof value.label === "string" &&
+    typeof value.last4 === "string" &&
+    typeof value.enabled === "boolean" &&
+    typeof value.created_at === "string" &&
+    isLastResult(value.last_result) &&
+    (value.last_used_at === null || typeof value.last_used_at === "string")
+  );
+}
+
+
+function isSecretRow(value: unknown): value is SecretRow {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const secretField = value.secret;
+
+  return isEncrypted(secretField) && isPublicRow(value);
+}
+
+/* ---------- Configuration ---------- */
+
+function getSecret(): string | null {
+  const value = (process.env.KEY_ENCRYPTION_SECRET ?? "").trim();
+  return value.length >= 32 ? value : null;
+}
+
+function getServiceKey(): string | null {
+  const value = (
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    process.env.SUPABASE_SECRET_KEY ??
+    ""
+  ).trim();
+  return value.length > 0 ? value : null;
+}
+
+export function getStorageState(): StorageState {
+  const missing: string[] = [];
+  if (!getSupabaseEnv()) {
+    missing.push("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+  }
+  if (!getServiceKey()) {
+    missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  }
+  if (!getSecret()) {
+    missing.push("KEY_ENCRYPTION_SECRET (at least 32 characters)");
+  }
+  if (missing.length > 0) {
+    return {
+      state: "missing_secret",
+      message: `Key storage is not configured. Missing: ${missing.join(", ")}. Add them to .env.local (local) or to Vercel Environment Variables (production), then restart or redeploy.`,
+    };
+  }
+  return {
+    state: "ready",
+    message:
+      "Keys are encrypted on the server and stored in your Supabase database. They are never sent back to the browser.",
+  };
+}
+
+let cachedClient: SupabaseClient | null = null;
+
+function db(): SupabaseClient {
+  const env = getSupabaseEnv();
+  const serviceKey = getServiceKey();
+  if (!env || !serviceKey) {
+    throw new KeyStoreError("Key storage is not configured.");
+  }
+  if (!cachedClient) {
+    cachedClient = createClient(env.url, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return cachedClient;
+}
+
+/* ---------- Encryption ---------- */
+
+let keyCache: { secret: string; key: Buffer } | null = null;
+
+function getCryptoKey(): Buffer | null {
+  const secret = getSecret();
+  if (!secret) {
+    return null;
+  }
+  if (keyCache && keyCache.secret === secret) {
+    return keyCache.key;
+  }
+  const key = scryptSync(secret, "metaforge-api-keys-v1", 32);
+  keyCache = { secret, key };
+  return key;
+}
+
+function encrypt(plain: string, aad: string, key: Buffer): EncryptedSecret {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  cipher.setAAD(Buffer.from(aad, "utf8"));
+  const data = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  return {
+    iv: iv.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64"),
+    data: data.toString("base64"),
+  };
+}
+
+function decrypt(secret: EncryptedSecret, aad: string, key: Buffer): string | null {
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(secret.iv, "base64"));
+    decipher.setAAD(Buffer.from(aad, "utf8"));
+    decipher.setAuthTag(Buffer.from(secret.tag, "base64"));
+    return Buffer.concat([
+      decipher.update(Buffer.from(secret.data, "base64")),
+      decipher.final(),
+    ]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+/* ---------- Helpers ---------- */
+
+function toPublic(row: PublicRow): PublicKey {
+  return {
+    id: row.id,
+    provider: row.provider,
+    label: row.label,
+    masked: "\u2022".repeat(12) + row.last4,
+    enabled: row.enabled,
+    createdAt: row.created_at,
+    lastResult: row.last_result,
+    lastUsedAt: row.last_used_at,
+  };
+}
+
+function notReady(): { ok: false; code: string; message: string; status: number } {
+  return { ok: false, code: "storage_unavailable", message: getStorageState().message, status: 503 };
+}
+
+async function fetchRows(provider: ProviderId): Promise<SecretRow[]> {
+  const { data, error } = await db()
+    .from(TABLE)
+    .select(`${PUBLIC_COLUMNS},secret`)
+    .eq("provider", provider);
+  const rows: unknown = data;
+  if (error || !Array.isArray(rows) || !rows.every(isSecretRow)) {
+    throw new KeyStoreError("The saved keys could not be read.");
+  }
+  return rows;
+}
+
+/* ---------- Public operations ---------- */
+
+export async function listKeys(): Promise<PublicKey[]> {
+  if (getStorageState().state !== "ready") {
+    return [];
+  }
+  const { data, error } = await db()
+    .from(TABLE)
+    .select(PUBLIC_COLUMNS)
+    .order("created_at", { ascending: true });
+  const rows: unknown = data;
+  if (error || !Array.isArray(rows) || !rows.every(isPublicRow)) {
+    throw new KeyStoreError("The saved keys could not be read.");
+  }
+  return rows.map(toPublic);
+}
+
+export async function addKey(input: {
+  provider: ProviderId;
+  label: string;
+  apiKey: string;
+}): Promise<KeyResult<PublicKey>> {
+  if (getStorageState().state !== "ready") {
+    return notReady();
+  }
+  const cryptoKey = getCryptoKey();
+  if (!cryptoKey) {
+    return notReady();
+  }
+
+  const sameProvider = await fetchRows(input.provider);
+
+  if (sameProvider.length >= MAX_KEYS_PER_PROVIDER) {
+    return {
+      ok: false,
+      code: "limit_reached",
+      status: 409,
+      message: `You already have ${MAX_KEYS_PER_PROVIDER} keys for this provider. Remove one first.`,
+    };
+  }
+  if (sameProvider.some((row) => row.label.toLowerCase() === input.label.toLowerCase())) {
+    return {
+      ok: false,
+      code: "duplicate_label",
+      status: 409,
+      message: "A key with this label already exists for this provider. Choose a different label.",
+    };
+  }
+  for (const existing of sameProvider) {
+    if (decrypt(existing.secret, existing.id, cryptoKey) === input.apiKey) {
+      return {
+        ok: false,
+        code: "duplicate_key",
+        status: 409,
+        message: `This key is already saved as "${existing.label}".`,
+      };
+    }
+  }
+
+  const id = randomUUID();
+  const { data, error } = await db()
+    .from(TABLE)
+    .insert({
+      id,
+      provider: input.provider,
+      label: input.label,
+      last4: input.apiKey.slice(-4),
+      enabled: true,
+      secret: encrypt(input.apiKey, id, cryptoKey),
+    })
+    .select(PUBLIC_COLUMNS)
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      return {
+        ok: false,
+        code: "duplicate_label",
+        status: 409,
+        message: "A key with this label already exists for this provider. Choose a different label.",
+      };
+    }
+    if (error.message.includes("KEY_LIMIT")) {
+      return {
+        ok: false,
+        code: "limit_reached",
+        status: 409,
+        message: `You already have ${MAX_KEYS_PER_PROVIDER} keys for this provider. Remove one first.`,
+      };
+    }
+    throw new KeyStoreError("The key could not be saved.");
+  }
+
+  const row: unknown = data;
+  if (!isPublicRow(row)) {
+    throw new KeyStoreError("The key was saved but the answer was unexpected.");
+  }
+  return { ok: true, value: toPublic(row) };
+}
+
+export async function setEnabled(id: string, enabled: boolean): Promise<KeyResult<PublicKey>> {
+  if (getStorageState().state !== "ready") {
+    return notReady();
+  }
+  const { data, error } = await db()
+    .from(TABLE)
+    .update({ enabled })
+    .eq("id", id)
+    .select(PUBLIC_COLUMNS)
+    .maybeSingle();
+  if (error) {
+    throw new KeyStoreError("The key could not be updated.");
+  }
+  const row: unknown = data;
+  if (row === null || row === undefined) {
+    return { ok: false, code: "not_found", status: 404, message: "That key no longer exists." };
+  }
+  if (!isPublicRow(row)) {
+    throw new KeyStoreError("The update answer was unexpected.");
+  }
+  return { ok: true, value: toPublic(row) };
+}
+
+export async function removeKey(id: string): Promise<KeyResult<true>> {
+  if (getStorageState().state !== "ready") {
+    return notReady();
+  }
+  const { data, error } = await db().from(TABLE).delete().eq("id", id).select("id");
+  if (error) {
+    throw new KeyStoreError("The key could not be removed.");
+  }
+  if (!Array.isArray(data) || data.length === 0) {
+    return { ok: false, code: "not_found", status: 404, message: "That key no longer exists." };
+  }
+  return { ok: true, value: true };
+}
+
+/** Records what really happened the last time a stored key was used. */
+export async function recordKeyResult(
+  id: string,
+  result: Exclude<LastResult, null>,
+): Promise<void> {
+  if (!id || getStorageState().state !== "ready") {
+    return;
+  }
+  try {
+    const { error } = await db()
+      .from(TABLE)
+      .update({ last_result: result, last_used_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) {
+      console.error("[key-store] could not record the result of a key");
+    }
+  } catch {
+    console.error("[key-store] could not record the result of a key");
+  }
+}
+
+/* ---------- Choosing keys for an AI request ---------- */
+
+function failureRank(row: SecretRow): number {
+  if (row.last_result === "rejected") {
+    return 2;
+  }
+  if (
+    row.last_result === "rate_limited" &&
+    row.last_used_at !== null &&
+    Date.now() - Date.parse(row.last_used_at) < RECENT_FAILURE_MS
+  ) {
+    return 1;
+  }
+  return 0;
+}
+
+function readEnvCandidates(provider: ProviderId): Candidate[] {
+  for (const name of ENV_NAMES[provider] ?? []) {
+    const value = (process.env[name] ?? "").trim();
+    if (value) {
+      return [{ id: "", label: `${name} (environment)`, apiKey: value }];
+    }
+  }
+  return [];
+}
+
+/**
+ * Keys the server may use for this provider, in the order to try them.
+ * - If any keys are saved for the provider, only ENABLED saved keys are used.
+ *   If all are disabled, nothing is used (the environment key is NOT a back door).
+ * - If none are saved, the environment key is used when it exists (Gemini only for now).
+ */
+export async function getCandidates(provider: ProviderId): Promise<CandidateResult> {
+  const providerName = PROVIDERS.find((entry) => entry.id === provider)?.name ?? provider;
+
+  if (getStorageState().state === "ready") {
+    let stored: SecretRow[];
+    try {
+      stored = await fetchRows(provider);
+    } catch {
+      return {
+        ok: false,
+        code: "key_store_error",
+        message:
+          "The saved keys could not be read. Check that the api_keys SQL was run and that SUPABASE_SERVICE_ROLE_KEY is correct.",
+      };
+    }
+
+    if (stored.length > 0) {
+      const enabled = stored.filter((row) => row.enabled);
+      if (enabled.length === 0) {
+        return {
+          ok: false,
+          code: "no_enabled_key",
+          message: `All saved ${providerName} keys are disabled. Enable one in the API Key Manager.`,
+        };
+      }
+
+      const cryptoKey = getCryptoKey();
+      if (!cryptoKey) {
+        return {
+          ok: false,
+          code: "key_store_error",
+          message: "KEY_ENCRYPTION_SECRET is missing on the server.",
+        };
+      }
+
+      const ordered = [...enabled].sort((a, b) => {
+        const rank = failureRank(a) - failureRank(b);
+        return rank !== 0 ? rank : Date.parse(a.created_at) - Date.parse(b.created_at);
+      });
+
+      const candidates: Candidate[] = [];
+      for (const row of ordered) {
+        const apiKey = decrypt(row.secret, row.id, cryptoKey);
+        if (apiKey) {
+          candidates.push({ id: row.id, label: row.label, apiKey });
+        }
+      }
+
+      if (candidates.length === 0) {
+        return {
+          ok: false,
+          code: "key_store_error",
+          message:
+            "The saved keys could not be decrypted. KEY_ENCRYPTION_SECRET may have changed. Remove the keys and add them again.",
+        };
+      }
+      return { ok: true, source: "store", candidates };
+    }
+  }
+
+  const fromEnv = readEnvCandidates(provider);
+  if (fromEnv.length > 0) {
+    return { ok: true, source: "env", candidates: fromEnv };
+  }
+
+  return {
+    ok: false,
+    code: "not_configured",
+    message: `No ${providerName} API key is available. Add one in the API Key Manager, or set it as an environment variable.`,
+  };
+}
+
+
+========== FILE: src\lib\server\runGemini.ts ==========
+import { GeminiError, generateRawMetadata, type GeminiErrorCode } from "./gemini";
+import { getCandidates, recordKeyResult } from "./keyStore";
+
+// SERVER ONLY. Picks enabled saved keys (or the environment key), calls Gemini,
+// and tries at most MAX_KEY_ATTEMPTS keys when a key is rejected or rate-limited.
+// Disabled keys are never returned by getCandidates(), so they are never used.
+
+const MAX_KEY_ATTEMPTS = 3;
+
+const STATUS_BY_CODE: Record<GeminiErrorCode, number> = {
+  invalid_key: 401,
+  unsupported_model: 400,
+  rate_limited: 429,
+  provider_unavailable: 503,
+  timeout: 504,
+  blocked: 422,
+  bad_response: 502,
+  bad_request: 502,
+};
+
+export type GeminiRunInput = {
+  model: string;
+  mimeType: string;
+  base64: string;
+  prompt: string;
+  schema?: Record<string, unknown>;
+  keywordMax: number;
+};
+
+export type GeminiRunResult =
+  | { ok: true; raw: unknown }
+  | {
+      ok: false;
+      status: number;
+      code: string;
+      message: string;
+      retryable: boolean;
+      retryAfterSeconds: number | null;
+    };
+
+function failure(status: number, code: string, message: string, retryable: boolean): GeminiRunResult {
+  return { ok: false, status, code, message, retryable, retryAfterSeconds: null };
+}
+
+export async function runGeminiWithKeys(input: GeminiRunInput): Promise<GeminiRunResult> {
+  const resolved = await getCandidates("gemini");
+  if (!resolved.ok) {
+    if (resolved.code === "key_store_error") {
+      return failure(500, "key_store_error", resolved.message, false);
+    }
+    // Reported as "not_configured" so the browser stops a whole batch instead of repeating the failure.
+    return failure(503, "not_configured", resolved.message, false);
+  }
+
+  const attempts = resolved.candidates.slice(0, MAX_KEY_ATTEMPTS);
+
+  for (let index = 0; index < attempts.length; index += 1) {
+    const candidate = attempts[index];
+    try {
+      const raw = await generateRawMetadata({
+        apiKey: candidate.apiKey,
+        model: input.model,
+        mimeType: input.mimeType,
+        base64: input.base64,
+        prompt: input.prompt,
+        keywordMax: input.keywordMax,
+        schema: input.schema,
+      });
+      await recordKeyResult(candidate.id, "ok");
+      return { ok: true, raw };
+    } catch (error) {
+      if (error instanceof GeminiError) {
+        if (error.code === "invalid_key") {
+          await recordKeyResult(candidate.id, "rejected");
+        } else if (error.code === "rate_limited") {
+          await recordKeyResult(candidate.id, "rate_limited");
+        }
+
+        const keySpecific = error.code === "invalid_key" || error.code === "rate_limited";
+        if (keySpecific && index < attempts.length - 1) {
+          continue;
+        }
+
+        return {
+          ok: false,
+          status: STATUS_BY_CODE[error.code],
+          code: error.code,
+          message: error.message,
+          retryable: error.retryable,
+          retryAfterSeconds: error.retryAfterMs !== null ? Math.ceil(error.retryAfterMs / 1000) : null,
+        };
+      }
+
+      console.error("[gemini-run] unexpected failure");
+      return failure(500, "internal_error", "Something went wrong on the server. Please try again.", true);
+    }
+  }
+
+  return failure(500, "internal_error", "No key could be used. Please try again.", true);
+}
+
+
+========== FILE: src\lib\server\generateStrictMetadata.ts ==========
+import {
+  buildStrictPrompt,
+  buildStrictSchema,
+  validateStrict,
+  type StrictData,
+} from "../metadata/strict";
+import { runGeminiWithKeys } from "./runGemini";
+
+// SERVER ONLY. At most MAX_ATTEMPTS model calls per image. Never pads or fakes keywords.
+
+const MAX_ATTEMPTS = 3;
+
+export type StrictOutcome =
+  | { ok: true; data: StrictData; warnings: string[] }
+  | {
+      ok: false;
+      status: number;
+      code: string;
+      message: string;
+      retryable: boolean;
+      retryAfterSeconds: number | null;
+    };
+
+export async function generateStrictMetadata(input: {
+  model: string;
+  mimeType: string;
+  base64: string;
+  count: number;
+}): Promise<StrictOutcome> {
+  let problems: string[] = [];
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    const run = await runGeminiWithKeys({
+      model: input.model,
+      mimeType: input.mimeType,
+      base64: input.base64,
+      prompt: buildStrictPrompt(input.count, problems),
+      schema: buildStrictSchema(input.count),
+      keywordMax: input.count,
+    });
+
+    if (!run.ok) {
+      return {
+        ok: false,
+        status: run.status,
+        code: run.code,
+        message: run.message,
+        retryable: run.retryable,
+        retryAfterSeconds: run.retryAfterSeconds,
+      };
+    }
+
+    const checked = validateStrict(run.raw, input.count);
+    if (checked.ok) {
+      const warnings =
+        attempt > 1 ? [...checked.warnings, `Needed ${attempt} attempts to meet the rules.`] : checked.warnings;
+      return { ok: true, data: checked.data, warnings };
+    }
+    problems = checked.problems;
+  }
+
+  return {
+    ok: false,
+    status: 502,
+    code: "validation_failed",
+    message: `The model could not meet the metadata rules after ${MAX_ATTEMPTS} attempts: ${problems.join(" ")}`,
+    retryable: true,
+    retryAfterSeconds: null,
+  };
+}
+
+
+========== FILE: src\lib\server\history.ts ==========
+import { createClient } from "../supabase/server";
+import { getSupabaseEnv } from "../supabase/env";
+import { cleanFileName } from "./requestUtils";
+
+// SERVER ONLY. History is read and written with the signed-in person's own session,
+// so Supabase Row Level Security applies. Every query also filters by user_id.
+
+export type HistoryKind = "metadata" | "prompt";
+
+export type HistoryEntry = {
+  id: string;
+  kind: HistoryKind;
+  fileName: string;
+  provider: string;
+  model: string;
+  platform: string | null;
+  result: Record<string, unknown>;
+  createdAt: string;
+};
+
+export class HistoryError extends Error {}
+
+export const HISTORY_PAGE_SIZE = 20;
+const COLUMNS = "id,kind,file_name,provider,model,platform,result,created_at";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toEntry(value: unknown): HistoryEntry | null {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    (value.kind !== "metadata" && value.kind !== "prompt") ||
+    typeof value.file_name !== "string" ||
+    typeof value.provider !== "string" ||
+    typeof value.model !== "string" ||
+    (value.platform !== null && typeof value.platform !== "string") ||
+    !isRecord(value.result) ||
+    typeof value.created_at !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: value.id,
+    kind: value.kind,
+    fileName: value.file_name,
+    provider: value.provider,
+    model: value.model,
+    platform: value.platform,
+    result: value.result,
+    createdAt: value.created_at,
+  };
+}
+
+/** Who is signed in. configured=false means sign-in is not set up (local development). */
+export async function getCurrentUser(): Promise<{ configured: boolean; userId: string | null }> {
+  if (!getSupabaseEnv()) {
+    return { configured: false, userId: null };
+  }
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    return { configured: true, userId: user?.id ?? null };
+  } catch {
+    return { configured: true, userId: null };
+  }
+}
+
+export async function saveHistory(
+  userId: string,
+  entry: {
+    kind: HistoryKind;
+    fileName: string;
+    provider: string;
+    model: string;
+    platform: string | null;
+    result: Record<string, unknown>;
+  },
+): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.from("history").insert({
+      user_id: userId,
+      kind: entry.kind,
+      file_name: cleanFileName(entry.fileName),
+      provider: entry.provider,
+      model: entry.model,
+      platform: entry.platform,
+      result: entry.result,
+    });
+    if (error) {
+      console.error("[history] could not save an entry");
+      return false;
+    }
+    return true;
+  } catch {
+    console.error("[history] could not save an entry");
+    return false;
+  }
+}
+
+export async function listHistory(
+  userId: string,
+  options: { kind: HistoryKind | null; page: number },
+): Promise<{ entries: HistoryEntry[]; total: number }> {
+  const from = (options.page - 1) * HISTORY_PAGE_SIZE;
+  const to = from + HISTORY_PAGE_SIZE - 1;
+
+  try {
+    const supabase = await createClient();
+    let query = supabase
+      .from("history")
+      .select(COLUMNS, { count: "exact" })
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .range(from, to);
+    if (options.kind) {
+      query = query.eq("kind", options.kind);
+    }
+
+    const { data, error, count } = await query;
+    const rows: unknown = data;
+    if (error || !Array.isArray(rows)) {
+      throw new HistoryError("History could not be read.");
+    }
+
+    const entries: HistoryEntry[] = [];
+    for (const row of rows) {
+      const entry = toEntry(row);
+      if (entry) {
+        entries.push(entry);
+      }
+    }
+    return { entries, total: count ?? entries.length };
+  } catch (error) {
+    if (error instanceof HistoryError) {
+      throw error;
+    }
+    throw new HistoryError("History could not be read.");
+  }
+}
+
+export async function deleteHistory(userId: string, id: string): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("history")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select("id");
+    if (error) {
+      throw new HistoryError("The entry could not be deleted.");
+    }
+    const rows: unknown = data;
+    return Array.isArray(rows) && rows.length > 0;
+  } catch (error) {
+    if (error instanceof HistoryError) {
+      throw error;
+    }
+    throw new HistoryError("The entry could not be deleted.");
+  }
+}
+
+
+========== FILE: src\lib\server\requestUtils.ts ==========
+// SERVER ONLY. Shared checks for routes that receive an uploaded image.
+
+export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+
+export type ImageMime = "image/jpeg" | "image/png" | "image/webp";
+
+export function jsonError(
+  status: number,
+  code: string,
+  message: string,
+  retryable: boolean,
+  requestId: string,
+  headers?: Record<string, string>,
+): Response {
+  return Response.json(
+    { success: false, code, message, retryable, requestId },
+    { status, headers: { "Cache-Control": "no-store", ...headers } },
+  );
+}
+
+export function isSameOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) {
+    return true;
+  }
+  try {
+    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+    return host === null ? true : new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+function ascii(bytes: Uint8Array, start: number, end: number): string {
+  return String.fromCharCode(...Array.from(bytes.slice(start, end)));
+}
+
+// Decide the real image type from the file's first bytes, not from its name or the browser's claim.
+export function detectImageType(bytes: Uint8Array): ImageMime | null {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return "image/png";
+  }
+  if (bytes.length >= 12 && ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 12) === "WEBP") {
+    return "image/webp";
+  }
+  return null;
+}
+
+export function formField(form: FormData, name: string): string {
+  const value = form.get(name);
+  return typeof value === "string" ? value : "";
+}
+
+export function cleanFileName(raw: string): string {
+  const cleaned = Array.from(raw)
+    .filter((character) => character !== "/" && character !== "\\" && character.charCodeAt(0) >= 32)
+    .join("")
+    .trim()
+    .slice(0, 255);
+  return cleaned.length > 0 ? cleaned : "image";
+}
+
+export type UploadResult =
+  | { ok: true; bytes: Uint8Array; mimeType: ImageMime }
+  | { ok: false; response: Response };
+
+export async function readUploadedImage(form: FormData, requestId: string): Promise<UploadResult> {
+  const image = form.get("image");
+  if (image === null || typeof image === "string") {
+    return { ok: false, response: jsonError(400, "invalid_request", "No image was uploaded.", false, requestId) };
+  }
+  if (image.size === 0) {
+    return { ok: false, response: jsonError(400, "invalid_request", "The image file is empty.", false, requestId) };
+  }
+  if (image.size > MAX_UPLOAD_BYTES) {
+    return { ok: false, response: jsonError(413, "payload_too_large", "The image is too large to upload.", false, requestId) };
+  }
+
+  const bytes = new Uint8Array(await image.arrayBuffer());
+  const mimeType = detectImageType(bytes);
+  if (!mimeType) {
+    return {
+      ok: false,
+      response: jsonError(400, "invalid_request", "The file is not a JPG, PNG or WEBP image.", false, requestId),
+    };
+  }
+  return { ok: true, bytes, mimeType };
+}
+
+
+========== FILE: src\lib\auth\session.ts ==========
+import { createClient } from "../supabase/server";
+import { getSupabaseEnv } from "../supabase/env";
+import { isEmailAllowed } from "./guards";
+
+// SERVER ONLY. Decides who is signed in and whether they are an admin.
+// The role comes from public.profiles, which the browser cannot change.
+
+export type AccessResult =
+  | { ok: true; userId: string; email: string; role: "user" | "admin" }
+  | { ok: false; status: 401 | 403 | 503; code: string; message: string };
+
+export async function getAccess(): Promise<AccessResult> {
+  if (!getSupabaseEnv()) {
+    return {
+      ok: false,
+      status: 503,
+      code: "auth_not_configured",
+      message: "Sign-in is not configured on the server.",
+    };
+  }
+
+  try {
+    const supabase = await createClient();
+
+    // getUser() asks Supabase to confirm the session. Cookies alone are never trusted.
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { ok: false, status: 401, code: "unauthenticated", message: "Please sign in." };
+    }
+    if (!user.email_confirmed_at || !isEmailAllowed(user.email)) {
+      return {
+        ok: false,
+        status: 403,
+        code: "not_allowed",
+        message: "This account is not allowed to use the app.",
+      };
+    }
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (error) {
+      return {
+        ok: false,
+        status: 503,
+        code: "profile_unavailable",
+        message: "Your profile could not be read. Check that the profiles SQL was run in Supabase.",
+      };
+    }
+
+    return {
+      ok: true,
+      userId: user.id,
+      email: user.email ?? "",
+      role: data?.role === "admin" ? "admin" : "user",
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 503,
+      code: "auth_unavailable",
+      message: "Could not check your sign-in. Try again.",
+    };
+  }
+}
+
+/** Returns an error Response if the caller is not a signed-in admin, or null if they are. */
+export async function adminApiGuard(): Promise<Response | null> {
+  const access = await getAccess();
+
+  if (!access.ok) {
+    return Response.json(
+      { success: false, code: access.code, message: access.message },
+      { status: access.status, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  if (access.role !== "admin") {
+    return Response.json(
+      { success: false, code: "forbidden", message: "Only an admin can do this." },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  return null;
+}
+
+
+========== FILE: src\lib\providers\catalog.ts ==========
+// The AI providers METAFORGE AI PRO plans to support.
+// Groq and xAI Grok are two different companies with different keys and endpoints.
+
+export type ProviderId = "gemini" | "openai" | "groq" | "anthropic" | "xai";
+
+export type ProviderInfo = {
+  id: ProviderId;
+  name: string;
+  summary: string;
+  docsUrl: string;
+  docsLabel: string;
+};
+
+/** Each provider can have up to this many keys. */
+export const MAX_KEYS_PER_PROVIDER = 12;
+
+export const PROVIDERS: ProviderInfo[] = [
+  {
+    id: "gemini",
+    name: "Google Gemini",
+    summary: "Gemini API keys come from Google AI Studio.",
+    docsUrl: "https://ai.google.dev/gemini-api/docs",
+    docsLabel: "Gemini API docs",
+  },
+  {
+    id: "openai",
+    name: "OpenAI",
+    summary:
+      "OpenAI API keys are separate from a ChatGPT subscription. The API is billed on its own.",
+    docsUrl: "https://platform.openai.com/docs",
+    docsLabel: "OpenAI API docs",
+  },
+  {
+    id: "groq",
+    name: "Groq",
+    summary: "Groq is a different company from xAI Grok and uses different keys.",
+    docsUrl: "https://console.groq.com/docs",
+    docsLabel: "Groq API docs",
+  },
+  {
+    id: "anthropic",
+    name: "Anthropic Claude",
+    summary:
+      "Anthropic API keys are separate from a Claude.ai chat subscription. The API is billed on its own.",
+    docsUrl: "https://docs.claude.com",
+    docsLabel: "Claude API docs",
+  },
+  {
+    id: "xai",
+    name: "xAI Grok",
+    summary: "xAI Grok is a different company from Groq and uses different keys.",
+    docsUrl: "https://docs.x.ai",
+    docsLabel: "xAI API docs",
+  },
+];
+
+
+========== FILE: src\app\api\provider-status\route.ts ==========
+import { getCandidates } from "../../../lib/server/keyStore";
+
+// Returns only yes/no. Never returns a key.
+export async function GET(): Promise<Response> {
+  const result = await getCandidates("gemini");
+  // "All keys disabled" still counts as configured here, so the Metadata Generator lets the
+  // request through and the server answers with the precise reason.
+  const configured = result.ok || result.code === "no_enabled_key";
+  return Response.json({ gemini: { configured } }, { headers: { "Cache-Control": "no-store" } });
+}
+
+
+
+
+
+
+========== FILE: package.json ==========
+{
+  "name": "metaforge-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@imgly/background-removal": "^1.7.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.3",
+    "jszip": "^3.10.2",
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+

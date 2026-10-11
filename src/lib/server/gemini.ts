@@ -41,6 +41,7 @@ export type GeminiRequest = {
   base64: string;
   prompt: string;
   keywordMax: number;
+  schema?: Record<string, unknown>;
 };
 
 const BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -217,11 +218,12 @@ async function requestText(args: GeminiRequest, useSchema: boolean): Promise<str
   const url = `${BASE_URL}/${encodeURIComponent(args.model)}:generateContent`;
 
   const generationConfig: Record<string, unknown> = {
-    responseMimeType: "application/json",
-    maxOutputTokens: 4096,
-  };
+  responseMimeType: "application/json",
+  maxOutputTokens: 8192,
+  temperature: 0.2,
+};
   if (useSchema) {
-    generationConfig.responseJsonSchema = buildResponseSchema(args.keywordMax);
+    generationConfig.responseJsonSchema = args.schema ?? buildResponseSchema(args.keywordMax);
   }
 
   const body = {

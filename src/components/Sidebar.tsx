@@ -14,6 +14,7 @@ import {
 type SidebarProps = {
   id: string;
   open: boolean;
+  isAdmin: boolean;
   onNavigate: () => void;
 };
 
@@ -43,9 +44,9 @@ function NavList({ items, pathname, onNavigate }: NavListProps) {
   );
 }
 
-export function Sidebar({ id, open, onNavigate }: SidebarProps) {
+export function Sidebar({ id, open, isAdmin, onNavigate }: SidebarProps) {
   const pathname = usePathname();
-  const items = getVisibleNavItems();
+  const items = getVisibleNavItems(isAdmin);
   const mainItems = items.filter((item) => item.placement === "main");
   const bottomItems = items.filter((item) => item.placement === "bottom");
   const signInEnabled = getSupabaseEnv() !== null;

@@ -1,105 +1,147 @@
-/* Extra styles for generation, platform profiles and disabled settings.
-   Uses the same theme variables as the rest of the app. */
-
-.mw-tab {
-  text-decoration: none;
-}
-
-.mw-result-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.mw-switch:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.mw-toggle-row[data-disabled="true"] .mw-toggle-label,
-.mw-toggle-row[data-disabled="true"] .mw-toggle-hint {
-  opacity: 0.6;
-}
-
-.mw-key-status {
-  margin-top: 12px;
-  font-size: 0.8rem;
+/* All Image Results / All Image Prompts: full-width rows */
+.mw-rc-summary {
+  font-size: 0.85rem;
   color: var(--text-muted);
 }
 
-.mw-key-status[data-level="warn"] {
-  color: var(--warn);
-}
-
-.mw-profile {
+.mw-rc-list {
   display: grid;
-  gap: 4px;
-  margin-top: 12px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.mw-rc {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  padding: 18px;
+  border-radius: 14px;
   border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg) 55%, var(--surface));
-  font-size: 0.78rem;
+  background: var(--surface);
+}
+
+.mw-rc[data-selected="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.mw-rc-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.mw-rc-top:hover .mw-rc-name {
+  color: var(--accent-text);
+}
+
+.mw-rc-name {
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.mw-rc-badge {
+  flex: none;
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+  font-weight: 600;
   color: var(--text-muted);
 }
 
-.mw-profile strong {
+.mw-rc-badge[data-tone="done"] {
+  border-color: color-mix(in srgb, #16a34a 65%, var(--border));
   color: var(--text);
 }
 
-.mw-profile-badge {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  font-size: 0.68rem;
-  font-weight: 600;
-  color: var(--warn);
+.mw-rc-badge[data-tone="failed"] {
+  border-color: color-mix(in srgb, #ef4444 65%, var(--border));
+  color: var(--text);
 }
 
-.mw-profile-badge[data-level="ok"] {
-  color: var(--accent-text);
+.mw-rc-badge[data-tone="processing"],
+.mw-rc-badge[data-tone="queued"] {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  color: var(--text);
 }
 
-.mw-profile a {
-  color: var(--accent-text);
-  font-weight: 600;
+.mw-rc-error {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #ef4444 55%, var(--border));
+  font-size: 0.9rem;
+  color: var(--text);
+  overflow-wrap: anywhere;
 }
 
-.mw-progress {
+.mw-rc-block {
   display: grid;
   gap: 6px;
-  margin-bottom: 8px;
-  font-size: 0.82rem;
-  color: var(--text-muted);
+  min-width: 0;
 }
 
-.mw-progress progress {
-  width: 100%;
-  height: 8px;
-  accent-color: var(--accent);
-}
-
-.mw-status {
-  margin-top: 6px;
-  font-size: 0.82rem;
-  color: var(--text-muted);
-}
-
-.mw-status[data-state="failed"] {
-  color: var(--warn);
-}
-
-.mw-status[data-state="done"] {
+.mw-rc-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--accent-text);
 }
 
-.mw-warnings {
-  margin: 0 0 8px;
-  padding: 8px 12px 8px 28px;
+.mw-rc-text {
+  width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--warn) 60%, var(--border));
-  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
-  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 55%, var(--surface));
+  color: var(--text);
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mw-rc-text[data-size="long"] {
+  min-height: 140px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+textarea.mw-rc-text {
+  display: block;
+  min-height: 180px;
+  resize: vertical;
+}
+
+.mw-rc-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.mw-rc-count {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.mw-rc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }

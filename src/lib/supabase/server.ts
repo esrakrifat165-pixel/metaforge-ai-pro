@@ -1,10 +1,12 @@
-﻿import { createServerClient } from "@supabase/ssr";
+
+import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { getSupabaseEnv } from "./env";
 
 // For Server Components, Route Handlers and Server Actions.
 export async function createClient() {
   const env = getSupabaseEnv();
+
   if (!env) {
     throw new Error("Supabase is not configured.");
   }
@@ -22,7 +24,8 @@ export async function createClient() {
             cookieStore.set(name, value, options);
           });
         } catch {
-          // Server Components cannot set cookies. The proxy refreshes the session instead.
+          // Server Components cannot set cookies.
+          // The proxy refreshes the session instead.
         }
       },
     },

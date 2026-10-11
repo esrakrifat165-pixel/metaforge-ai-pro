@@ -1,0 +1,92 @@
+=== TOP BAR / BELL / CHIP ===
+src\app\(app)\admin\page.tsx:28  description={`${access.message} The admin panel needs sign-in and the profiles table to check who is an administrator.`}
+src\app\(app)\admin\page.tsx:41  description="Your account does not have the admin role. Only an administrator can open this page."
+src\app\(app)\admin\page.tsx:82  <section aria-labelledby="ad-session-heading">
+src\app\(app)\admin\page.tsx:98  Administrator
+src\app\(app)\admin\page.tsx:105  <section aria-labelledby="ad-setup-heading">
+src\app\(app)\admin\page.tsx:136  <section aria-labelledby="ad-providers-heading">
+src\app\(app)\admin\page.tsx:180  <section aria-labelledby="ad-data-heading">
+src\app\(app)\dashboard\page.tsx:47  <section aria-labelledby="setup-heading">
+src\app\(app)\dashboard\page.tsx:68  <section aria-labelledby="tools-heading">
+src\app\(app)\dashboard\page.tsx:90  <section aria-labelledby="jobs-heading">
+src\app\(app)\dashboard\page.tsx:103  <section aria-labelledby="activity-heading">
+src\app\(app)\help\page.tsx:203  <div id={a.id + "-panel"} role="region" aria-labelledby={a.id + "-btn"} hidden={!isOpen} className="hlp-panel">
+src\app\(app)\help\page.tsx:236  <section className="hlp-card" aria-labelledby="hlp-search-h">
+src\app\(app)\help\page.tsx:280  <section key={g.category} className="hlp-card" aria-labelledby={"hlp-cat-" + g.category.replace(/\s+/g, "-")}>
+src\app\(app)\help\page.tsx:289  <section className="hlp-card" aria-labelledby="hlp-actions-h">
+src\app\(app)\help\page.tsx:309  <section className="hlp-card" aria-labelledby="hlp-contact-h">
+src\app\(app)\help\page.tsx:332  Administrators: set NEXT_PUBLIC_SUPPORT_EMAIL and/or NEXT_PUBLIC_SUPPORT_URL (https only) in the environment,
+src\app\(app)\help\page.tsx:337  <section className="hlp-card" aria-labelledby="hlp-privacy-h">
+src\app\(app)\settings\api-keys\page.tsx:42  description="Only an administrator can manage API keys."
+src\app\(app)\settings\page.tsx:198  Preferences below are saved, but the tools do not read them yet. Each section is labelled until a tool is connected to it.
+src\app\(app)\settings\page.tsx:201  <section className="stg-card" aria-labelledby="stg-appearance">
+src\app\(app)\settings\page.tsx:208  <section className="stg-card stg-card-disabled" aria-labelledby="stg-provider">
+src\app\(app)\settings\page.tsx:218  <section className="stg-card" aria-labelledby="stg-metadata">
+src\app\(app)\settings\page.tsx:280  <section className="stg-card" aria-labelledby="stg-i2p">
+src\app\(app)\settings\page.tsx:301  <section className="stg-card" aria-labelledby="stg-image">
+src\app\(app)\settings\page.tsx:363  <section className="stg-card" aria-labelledby="stg-batch">
+src\app\(app)\settings\page.tsx:380  <section className="stg-card" aria-labelledby="stg-privacy">
+src\components\api-keys\ApiKeyManager.tsx:347  <section aria-labelledby="ak-providers-heading">
+src\components\api-keys\ApiKeyManager.tsx:384  aria-labelledby={`ak-tab-${provider.id}`}
+src\components\bento\BentoWorkspace.tsx:305  <section className="card bn-block" aria-labelledby="bn-upload-title">
+src\components\bento\BentoWorkspace.tsx:367  <section className="card bn-block" aria-labelledby="bn-layout-title">
+src\components\bento\BentoWorkspace.tsx:384  <section className="card bn-block" aria-labelledby="bn-canvas-title">
+src\components\bento\BentoWorkspace.tsx:426  <section className="card bn-preview-card" aria-labelledby="bn-preview-title">
+src\components\calendar\CalendarWorkspace.tsx:700  aria-labelledby="cal-detail-title"
+src\components\calendar\CalendarWorkspace.tsx:783  aria-labelledby="cal-form-title"
+src\components\converter\ConverterWorkspace.tsx:310  <section className="card cv-block" aria-labelledby="cv-up">
+src\components\converter\ConverterWorkspace.tsx:328  <section className="card cv-block" aria-labelledby="cv-set">
+src\components\converter\ConverterWorkspace.tsx:370  <section className="card cv-main" aria-labelledby="cv-list">
+src\components\image-to-prompt\ImageToPromptWorkspace.tsx:430  <section className="mw-card" aria-labelledby="ip-upload-title">
+src\components\image-to-prompt\ImageToPromptWorkspace.tsx:489  <section className="mw-card" aria-labelledby="ip-settings-title">
+src\components\image-to-prompt\ImageToPromptWorkspace.tsx:554  <section className="mw-card" aria-labelledby="ip-preview-title">
+src\components\image-to-prompt\ImageToPromptWorkspace.tsx:607  <section className="mw-card" aria-labelledby="ip-result-title">
+src\components\image-to-prompt\ImageToPromptWorkspace.tsx:694  <section className="mw-card" aria-labelledby="ip-all-title">
+src\components\metadata\MetadataWorkspace.tsx:166  aria-labelledby={`${id}-label`}
+src\components\metadata\MetadataWorkspace.tsx:804  <section className="mw-card" aria-labelledby="mw-upload-title">
+src\components\metadata\MetadataWorkspace.tsx:876  <section className="mw-card" aria-labelledby="mw-settings-title">
+src\components\metadata\MetadataWorkspace.tsx:1009  <section className="mw-card" aria-labelledby="mw-preview-title">
+src\components\metadata\MetadataWorkspace.tsx:1247  <section className="mw-card" aria-labelledby="mw-all-title">
+src\components\metadata\MetaIcons.tsx:23  | "bell"
+src\components\metadata\MetaIcons.tsx:136  bell: (
+src\components\psd\PsdWorkspace.tsx:310  <section className="card ps-block" aria-labelledby="ps-up">
+src\components\psd\PsdWorkspace.tsx:371  <section className="card ps-block" aria-labelledby="ps-doc">
+src\components\psd\PsdWorkspace.tsx:427  <section className="card ps-preview-card" aria-labelledby="ps-prev">
+src\components\AppShell.tsx:37  ? "Administrator"
+src\components\AppShell.tsx:85  aria-label="Notifications (not available yet)"
+src\components\AppShell.tsx:86  title="Notifications are not available yet"
+src\components\AppShell.tsx:88  <Icon name="bell" />
+src\components\Icons.tsx:24  | "bell"
+src\components\Icons.tsx:139  bell: (
+src\lib\navigation.ts:17  /** Shown in the sidebar only for administrators. */
+src\lib\navigation.ts:147  description: "Administrator tools. Available to authorized administrators only.",
+=== AUTH / LOGOUT ===
+src\app\auth\signout\route.ts:7  await supabase.auth.signOut();
+src\components\Sidebar.tsx:73  <form action="/auth/signout" method="post">
+=== CONTROLS THAT CANNOT WORK ===
+src\app\(app)\dashboard\page.tsx:73  <span className="section-note">{quickAccessItems.length} tools planned</span>
+src\app\(app)\dashboard\page.tsx:83  <span className="badge">Planned: {item.phase}</span>
+src\app\(app)\settings\page.tsx:211  Not available yet. Default provider and model need the application&apos;s real model registry, which this page does not guess at. API keys are managed separately, and none are shown here.
+src\components\calendar\CalendarWorkspace.tsx:51  const noopSubscribe = () => () => undefined;
+src\components\image-to-prompt\ImageToPromptWorkspace.tsx:498  <select id="ip-provider" className="mw-select" value="gemini" disabled onChange={() => undefined}>
+src\components\metadata\eps.ts:11  chain = run.catch(() => undefined);
+src\components\metadata\MetadataWorkspace.tsx:984  hint="Not available yet. Needs more than one key."
+src\components\metadata\MetadataWorkspace.tsx:987  onChange={() => undefined}
+src\components\metadata\MetadataWorkspace.tsx:992  hint="Not available yet."
+src\components\metadata\MetadataWorkspace.tsx:995  onChange={() => undefined}
+src\components\metadata\MetadataWorkspace.tsx:1000  hint="Not available yet."
+src\components\metadata\MetadataWorkspace.tsx:1003  onChange={() => undefined}
+src\components\metadata\MetadataWorkspace.tsx:1386  data-unavailable="true"
+src\components\metadata\MetadataWorkspace.tsx:1387  aria-disabled="true"
+src\components\metadata\MetadataWorkspace.tsx:1392  "Saving to projects needs the database planned for Phase 5. Nothing was saved.",
+src\components\metadata\MetadataWorkspace.tsx:1413  data-unavailable="true"
+src\components\metadata\MetadataWorkspace.tsx:1414  aria-disabled="true"
+src\components\AppShell.tsx:84  aria-disabled="true"
+src\components\AppShell.tsx:85  aria-label="Notifications (not available yet)"
+src\components\AppShell.tsx:86  title="Notifications are not available yet"
+src\components\Sidebar.tsx:84  aria-disabled="true"
+=== NOTIFICATION TABLES IN SQL ===
+=== LAYOUT FILES ===
+C:\Projects\metaforge-ai-pro\metaforge-web\src\components\image-to-prompt\ImageToPromptWorkspace.tsx  29963 bytes
+C:\Projects\metaforge-ai-pro\metaforge-web\src\components\AppShell.tsx  3162 bytes
+C:\Projects\metaforge-ai-pro\metaforge-web\src\components\AppShell.tsx.bak-20261011-232718  3162 bytes

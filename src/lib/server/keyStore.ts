@@ -79,8 +79,15 @@ function isPublicRow(value: unknown): value is PublicRow {
   );
 }
 
+
 function isSecretRow(value: unknown): value is SecretRow {
-  return isPublicRow(value) && isRecord(value) && isEncrypted(value.secret);
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const secretField = value.secret;
+
+  return isEncrypted(secretField) && isPublicRow(value);
 }
 
 /* ---------- Configuration ---------- */

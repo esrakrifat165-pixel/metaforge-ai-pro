@@ -14,7 +14,7 @@ export type NavItem = {
   placement: NavPlacement;
   /** The build phase in which this page becomes functional. */
   phase: string;
-  /** Hidden from the sidebar until server-verified admin sign-in exists. */
+  /** Shown in the sidebar only for administrators. */
   adminOnly?: boolean;
 };
 
@@ -153,8 +153,9 @@ export const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-export function getVisibleNavItems(): NavItem[] {
-  return NAV_ITEMS.filter((item) => !item.adminOnly);
+/** Menu items to show. Admin-only items appear only when isAdmin is true. */
+export function getVisibleNavItems(isAdmin = false): NavItem[] {
+  return NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
 }
 
 export function getNavItemByHref(href: string): NavItem | undefined {

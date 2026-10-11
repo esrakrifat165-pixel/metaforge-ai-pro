@@ -8,9 +8,9 @@ import { checkRateLimit } from "../../../lib/server/rateLimit";
 // Hosted platforms such as Vercel do not include it. Access still goes through the
 // sign-in proxy, and the request must come from this site.
 
-const MAX_BYTES = 4 * 1024 * 1024;
+const MAX_BYTES = 8 * 1024 * 1024;
 const TIMEOUT_MS = 30_000;
-const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
+const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
 type GsOutcome = "ok" | "missing" | "timeout" | "failed";
 
@@ -106,7 +106,7 @@ export async function POST(request: Request): Promise<Response> {
     return reply(400, "invalid_request", "The file is empty.");
   }
   if (file.size > MAX_BYTES) {
-    return reply(413, "payload_too_large", "The EPS is larger than 4 MB.");
+    return reply(413, "payload_too_large", "The EPS is larger than 8 MB.");
   }
 
   const bytes = Buffer.from(await file.arrayBuffer());

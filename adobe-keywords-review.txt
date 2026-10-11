@@ -1,0 +1,1748 @@
+﻿METAFORGE AI PRO SOURCE REVIEW
+
+===== FILE: .\src\lib\server\keyStore.ts =====
+
+import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scryptSync } from "node:crypto";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { MAX_KEYS_PER_PROVIDER, PROVIDERS, type ProviderId } from "../providers/catalog";
+import type { LastResult, PublicKey, StorageState } from "../keys/shared";
+import { getSupabaseEnv } from "../supabase/env";
+
+// SERVER ONLY. Never import this file from a client component.
+//
+// Keys are encrypted with AES-256-GCM (secret: KEY_ENCRYPTION_SECRET) and stored in the
+// Supabase table public.api_keys. The table has row-level security and no policies, so
+// only the server, using SUPABASE_SERVICE_ROLE_KEY, can read or write it.
+// Callers must check admin rights before using listKeys/addKey/setEnabled/removeKey.
+
+type EncryptedSecret = { iv: string; tag: string; data: string };
+
+type PublicRow = {
+  id: string;
+  provider: ProviderId;
+  label: string;
+  last4: string;
+  enabled: boolean;
+  created_at: string;
+  last_result: LastResult;
+  last_used_at: string | null;
+};
+
+type SecretRow = PublicRow & { secret: EncryptedSecret };
+
+export type KeyResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; code: string; message: string; status: number };
+
+export type Candidate = { id: string; label: string; apiKey: string };
+
+export type CandidateResult =
+  | { ok: true; source: "store" | "env"; candidates: Candidate[] }
+  | { ok: false; code: "no_enabled_key" | "not_configured" | "key_store_error"; message: string };
+
+export class KeyStoreError extends Error {}
+
+const TABLE = "api_keys";
+const PUBLIC_COLUMNS = "id,provider,label,last4,enabled,created_at,last_result,last_used_at";
+const ENV_NAMES: Partial<Record<ProviderId, string[]>> = {
+  gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+};
+const RECENT_FAILURE_MS = 2 * 60 * 1000;
+
+/* ---------- Guards ---------- */
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isEncrypted(value: unknown): value is EncryptedSecret {
+  return (
+    isRecord(value) &&
+    typeof value.iv === "string" &&
+    typeof value.tag === "string" &&
+    typeof value.data === "string"
+  );
+}
+
+function isLastResult(value: unknown): value is LastResult {
+  return value === null || value === "ok" || value === "rejected" || value === "rate_limited";
+}
+
+function isPublicRow(value: unknown): value is PublicRow {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.provider === "string" &&
+    PROVIDERS.some((provider) => provider.id === value.provider) &&
+    typeof value.label === "string" &&
+    typeof value.last4 === "string" &&
+    typeof value.enabled === "boolean" &&
+    typeof value.created_at === "string" &&
+    isLastResult(value.last_result) &&
+    (value.last_used_at === null || typeof value.last_used_at === "string")
+  );
+}
+
+
+function isSecretRow(value: unknown): value is SecretRow {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const secretField = value.secret;
+
+  return isEncrypted(secretField) && isPublicRow(value);
+}
+
+/* ---------- Configuration ---------- */
+
+function getSecret(): string | null {
+  const value = (process.env.KEY_ENCRYPTION_SECRET ?? "").trim();
+  return value.length >= 32 ? value : null;
+}
+
+function getServiceKey(): string | null {
+  const value = (
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    process.env.SUPABASE_SECRET_KEY ??
+    ""
+  ).trim();
+  return value.length > 0 ? value : null;
+}
+
+export function getStorageState(): StorageState {
+  const missing: string[] = [];
+  if (!getSupabaseEnv()) {
+    missing.push("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+  }
+  if (!getServiceKey()) {
+    missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  }
+  if (!getSecret()) {
+    missing.push("KEY_ENCRYPTION_SECRET (at least 32 characters)");
+  }
+  if (missing.length > 0) {
+    return {
+      state: "missing_secret",
+      message: `Key storage is not configured. Missing: ${missing.join(", ")}. Add them to .env.local (local) or to Vercel Environment Variables (production), then restart or redeploy.`,
+    };
+  }
+  return {
+    state: "ready",
+    message:
+      "Keys are encrypted on the server and stored in your Supabase database. They are never sent back to the browser.",
+  };
+}
+
+let cachedClient: SupabaseClient | null = null;
+
+function db(): SupabaseClient {
+  const env = getSupabaseEnv();
+  const serviceKey = getServiceKey();
+  if (!env || !serviceKey) {
+    throw new KeyStoreError("Key storage is not configured.");
+  }
+  if (!cachedClient) {
+    cachedClient = createClient(env.url, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return cachedClient;
+}
+
+/* ---------- Encryption ---------- */
+
+let keyCache: { secret: string; key: Buffer } | null = null;
+
+function getCryptoKey(): Buffer | null {
+  const secret = getSecret();
+  if (!secret) {
+    return null;
+  }
+  if (keyCache && keyCache.secret === secret) {
+    return keyCache.key;
+  }
+  const key = scryptSync(secret, "metaforge-api-keys-v1", 32);
+  keyCache = { secret, key };
+  return key;
+}
+
+function encrypt(plain: string, aad: string, key: Buffer): EncryptedSecret {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  cipher.setAAD(Buffer.from(aad, "utf8"));
+  const data = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  return {
+    iv: iv.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64"),
+    data: data.toString("base64"),
+  };
+}
+
+function decrypt(secret: EncryptedSecret, aad: string, key: Buffer): string | null {
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(secret.iv, "base64"));
+    decipher.setAAD(Buffer.from(aad, "utf8"));
+    decipher.setAuthTag(Buffer.from(secret.tag, "base64"));
+    return Buffer.concat([
+      decipher.update(Buffer.from(secret.data, "base64")),
+      decipher.final(),
+    ]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+/* ---------- Helpers ---------- */
+
+function toPublic(row: PublicRow): PublicKey {
+  return {
+    id: row.id,
+    provider: row.provider,
+    label: row.label,
+    masked: "\u2022".repeat(12) + row.last4,
+    enabled: row.enabled,
+    createdAt: row.created_at,
+    lastResult: row.last_result,
+    lastUsedAt: row.last_used_at,
+  };
+}
+
+function notReady(): { ok: false; code: string; message: string; status: number } {
+  return { ok: false, code: "storage_unavailable", message: getStorageState().message, status: 503 };
+}
+
+async function fetchRows(provider: ProviderId): Promise<SecretRow[]> {
+  const { data, error } = await db()
+    .from(TABLE)
+    .select(`${PUBLIC_COLUMNS},secret`)
+    .eq("provider", provider);
+  const rows: unknown = data;
+  if (error || !Array.isArray(rows) || !rows.every(isSecretRow)) {
+    throw new KeyStoreError("The saved keys could not be read.");
+  }
+  return rows;
+}
+
+/* ---------- Public operations ---------- */
+
+export async function listKeys(): Promise<PublicKey[]> {
+  if (getStorageState().state !== "ready") {
+    return [];
+  }
+  const { data, error } = await db()
+    .from(TABLE)
+    .select(PUBLIC_COLUMNS)
+    .order("created_at", { ascending: true });
+  const rows: unknown = data;
+  if (error || !Array.isArray(rows) || !rows.every(isPublicRow)) {
+    throw new KeyStoreError("The saved keys could not be read.");
+  }
+  return rows.map(toPublic);
+}
+
+export async function addKey(input: {
+  provider: ProviderId;
+  label: string;
+  apiKey: string;
+}): Promise<KeyResult<PublicKey>> {
+  if (getStorageState().state !== "ready") {
+    return notReady();
+  }
+  const cryptoKey = getCryptoKey();
+  if (!cryptoKey) {
+    return notReady();
+  }
+
+  const sameProvider = await fetchRows(input.provider);
+
+  if (sameProvider.length >= MAX_KEYS_PER_PROVIDER) {
+    return {
+      ok: false,
+      code: "limit_reached",
+      status: 409,
+      message: `You already have ${MAX_KEYS_PER_PROVIDER} keys for this provider. Remove one first.`,
+    };
+  }
+  if (sameProvider.some((row) => row.label.toLowerCase() === input.label.toLowerCase())) {
+    return {
+      ok: false,
+      code: "duplicate_label",
+      status: 409,
+      message: "A key with this label already exists for this provider. Choose a different label.",
+    };
+  }
+  for (const existing of sameProvider) {
+    if (decrypt(existing.secret, existing.id, cryptoKey) === input.apiKey) {
+      return {
+        ok: false,
+        code: "duplicate_key",
+        status: 409,
+        message: `This key is already saved as "${existing.label}".`,
+      };
+    }
+  }
+
+  const id = randomUUID();
+  const { data, error } = await db()
+    .from(TABLE)
+    .insert({
+      id,
+      provider: input.provider,
+      label: input.label,
+      last4: input.apiKey.slice(-4),
+      enabled: true,
+      secret: encrypt(input.apiKey, id, cryptoKey),
+    })
+    .select(PUBLIC_COLUMNS)
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      return {
+        ok: false,
+        code: "duplicate_label",
+        status: 409,
+        message: "A key with this label already exists for this provider. Choose a different label.",
+      };
+    }
+    if (error.message.includes("KEY_LIMIT")) {
+      return {
+        ok: false,
+        code: "limit_reached",
+        status: 409,
+        message: `You already have ${MAX_KEYS_PER_PROVIDER} keys for this provider. Remove one first.`,
+      };
+    }
+    throw new KeyStoreError("The key could not be saved.");
+  }
+
+  const row: unknown = data;
+  if (!isPublicRow(row)) {
+    throw new KeyStoreError("The key was saved but the answer was unexpected.");
+  }
+  return { ok: true, value: toPublic(row) };
+}
+
+export async function setEnabled(id: string, enabled: boolean): Promise<KeyResult<PublicKey>> {
+  if (getStorageState().state !== "ready") {
+    return notReady();
+  }
+  const { data, error } = await db()
+    .from(TABLE)
+    .update({ enabled })
+    .eq("id", id)
+    .select(PUBLIC_COLUMNS)
+    .maybeSingle();
+  if (error) {
+    throw new KeyStoreError("The key could not be updated.");
+  }
+  const row: unknown = data;
+  if (row === null || row === undefined) {
+    return { ok: false, code: "not_found", status: 404, message: "That key no longer exists." };
+  }
+  if (!isPublicRow(row)) {
+    throw new KeyStoreError("The update answer was unexpected.");
+  }
+  return { ok: true, value: toPublic(row) };
+}
+
+export async function removeKey(id: string): Promise<KeyResult<true>> {
+  if (getStorageState().state !== "ready") {
+    return notReady();
+  }
+  const { data, error } = await db().from(TABLE).delete().eq("id", id).select("id");
+  if (error) {
+    throw new KeyStoreError("The key could not be removed.");
+  }
+  if (!Array.isArray(data) || data.length === 0) {
+    return { ok: false, code: "not_found", status: 404, message: "That key no longer exists." };
+  }
+  return { ok: true, value: true };
+}
+
+/** Records what really happened the last time a stored key was used. */
+export async function recordKeyResult(
+  id: string,
+  result: Exclude<LastResult, null>,
+): Promise<void> {
+  if (!id || getStorageState().state !== "ready") {
+    return;
+  }
+  try {
+    const { error } = await db()
+      .from(TABLE)
+      .update({ last_result: result, last_used_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) {
+      console.error("[key-store] could not record the result of a key");
+    }
+  } catch {
+    console.error("[key-store] could not record the result of a key");
+  }
+}
+
+/* ---------- Choosing keys for an AI request ---------- */
+
+function failureRank(row: SecretRow): number {
+  if (row.last_result === "rejected") {
+    return 2;
+  }
+  if (
+    row.last_result === "rate_limited" &&
+    row.last_used_at !== null &&
+    Date.now() - Date.parse(row.last_used_at) < RECENT_FAILURE_MS
+  ) {
+    return 1;
+  }
+  return 0;
+}
+
+function readEnvCandidates(provider: ProviderId): Candidate[] {
+  for (const name of ENV_NAMES[provider] ?? []) {
+    const value = (process.env[name] ?? "").trim();
+    if (value) {
+      return [{ id: "", label: `${name} (environment)`, apiKey: value }];
+    }
+  }
+  return [];
+}
+
+/**
+ * Keys the server may use for this provider, in the order to try them.
+ * - If any keys are saved for the provider, only ENABLED saved keys are used.
+ *   If all are disabled, nothing is used (the environment key is NOT a back door).
+ * - If none are saved, the environment key is used when it exists (Gemini only for now).
+ */
+export async function getCandidates(provider: ProviderId): Promise<CandidateResult> {
+  const providerName = PROVIDERS.find((entry) => entry.id === provider)?.name ?? provider;
+
+  if (getStorageState().state === "ready") {
+    let stored: SecretRow[];
+    try {
+      stored = await fetchRows(provider);
+    } catch {
+      return {
+        ok: false,
+        code: "key_store_error",
+        message:
+          "The saved keys could not be read. Check that the api_keys SQL was run and that SUPABASE_SERVICE_ROLE_KEY is correct.",
+      };
+    }
+
+    if (stored.length > 0) {
+      const enabled = stored.filter((row) => row.enabled);
+      if (enabled.length === 0) {
+        return {
+          ok: false,
+          code: "no_enabled_key",
+          message: `All saved ${providerName} keys are disabled. Enable one in the API Key Manager.`,
+        };
+      }
+
+      const cryptoKey = getCryptoKey();
+      if (!cryptoKey) {
+        return {
+          ok: false,
+          code: "key_store_error",
+          message: "KEY_ENCRYPTION_SECRET is missing on the server.",
+        };
+      }
+
+      const ordered = [...enabled].sort((a, b) => {
+        const rank = failureRank(a) - failureRank(b);
+        return rank !== 0 ? rank : Date.parse(a.created_at) - Date.parse(b.created_at);
+      });
+
+      const candidates: Candidate[] = [];
+      for (const row of ordered) {
+        const apiKey = decrypt(row.secret, row.id, cryptoKey);
+        if (apiKey) {
+          candidates.push({ id: row.id, label: row.label, apiKey });
+        }
+      }
+
+      if (candidates.length === 0) {
+        return {
+          ok: false,
+          code: "key_store_error",
+          message:
+            "The saved keys could not be decrypted. KEY_ENCRYPTION_SECRET may have changed. Remove the keys and add them again.",
+        };
+      }
+      return { ok: true, source: "store", candidates };
+    }
+  }
+
+  const fromEnv = readEnvCandidates(provider);
+  if (fromEnv.length > 0) {
+    return { ok: true, source: "env", candidates: fromEnv };
+  }
+
+  return {
+    ok: false,
+    code: "not_configured",
+    message: `No ${providerName} API key is available. Add one in the API Key Manager, or set it as an environment variable.`,
+  };
+}
+
+===== FILE: .\src\app\api\api-keys\route.ts =====
+
+import { adminApiGuard } from "../../../lib/auth/session";
+import { MAX_KEYS_PER_PROVIDER, PROVIDERS, type ProviderId } from "../../../lib/providers/catalog";
+import { validateApiKey, validateLabel } from "../../../lib/keys/shared";
+import { addKey, getStorageState, listKeys, removeKey, setEnabled } from "../../../lib/server/keyStore";
+import { checkRateLimit } from "../../../lib/server/rateLimit";
+
+// Responses NEVER include a saved secret. Only masked values are returned.
+// Every request needs a signed-in admin (checked on the server).
+
+const ID_PATTERN = /^[0-9a-fA-F-]{36}$/;
+
+function reply(body: Record<string, unknown>, status = 200): Response {
+  return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+}
+
+function fail(status: number, code: string, message: string): Response {
+  return reply({ success: false, code, message }, status);
+}
+
+function isSameOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) {
+    return true;
+  }
+  try {
+    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+    return host !== null && new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+async function guard(request: Request): Promise<Response | null> {
+  if (!isSameOrigin(request)) {
+    return fail(403, "forbidden", "This request was not allowed.");
+  }
+  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const limit = checkRateLimit(`api-keys:${client}`, 120, 60_000);
+  if (!limit.allowed) {
+    return fail(429, "rate_limited", "Too many requests. Please wait a moment.");
+  }
+  return adminApiGuard();
+}
+
+async function readBody(request: Request): Promise<Record<string, unknown> | null> {
+  try {
+    const value: unknown = await request.json();
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function asProviderId(value: unknown): ProviderId | null {
+  return typeof value === "string" && PROVIDERS.some((provider) => provider.id === value)
+    ? (value as ProviderId)
+    : null;
+}
+
+export async function GET(request: Request): Promise<Response> {
+  const blocked = await guard(request);
+  if (blocked) {
+    return blocked;
+  }
+
+  const storage = getStorageState();
+  if (storage.state !== "ready") {
+    return reply({ success: true, storage, limit: MAX_KEYS_PER_PROVIDER, keys: [] });
+  }
+
+  try {
+    const keys = await listKeys();
+    return reply({ success: true, storage, limit: MAX_KEYS_PER_PROVIDER, keys });
+  } catch {
+    return reply({
+      success: true,
+      storage: {
+        state: "error",
+        message:
+          "The saved keys could not be read. Check that the api_keys SQL was run in Supabase and that SUPABASE_SERVICE_ROLE_KEY is correct.",
+      },
+      limit: MAX_KEYS_PER_PROVIDER,
+      keys: [],
+    });
+  }
+}
+
+export async function POST(request: Request): Promise<Response> {
+  const blocked = await guard(request);
+  if (blocked) {
+    return blocked;
+  }
+
+  const body = await readBody(request);
+  if (!body) {
+    return fail(400, "invalid_request", "The request could not be read.");
+  }
+
+  const provider = asProviderId(body.provider);
+  if (!provider) {
+    return fail(400, "invalid_request", "Unknown provider.");
+  }
+  if (typeof body.label !== "string" || typeof body.apiKey !== "string") {
+    return fail(400, "invalid_request", "A label and an API key are required.");
+  }
+
+  const problem = validateLabel(body.label) ?? validateApiKey(body.apiKey);
+  if (problem) {
+    return fail(400, "validation_failed", problem);
+  }
+
+  try {
+    const result = await addKey({
+      provider,
+      label: body.label.trim(),
+      apiKey: body.apiKey.trim(),
+    });
+    if (!result.ok) {
+      return fail(result.status, result.code, result.message);
+    }
+    return reply({ success: true, key: result.value }, 201);
+  } catch {
+    return fail(500, "storage_error", "The key could not be saved. Check the Supabase setup and try again.");
+  }
+}
+
+export async function PATCH(request: Request): Promise<Response> {
+  const blocked = await guard(request);
+  if (blocked) {
+    return blocked;
+  }
+
+  const body = await readBody(request);
+  if (!body || typeof body.id !== "string" || !ID_PATTERN.test(body.id) || typeof body.enabled !== "boolean") {
+    return fail(400, "invalid_request", "A key id and an enabled value are required.");
+  }
+
+  try {
+    const result = await setEnabled(body.id, body.enabled);
+    if (!result.ok) {
+      return fail(result.status, result.code, result.message);
+    }
+    return reply({ success: true, key: result.value });
+  } catch {
+    return fail(500, "storage_error", "The key could not be updated. Try again.");
+  }
+}
+
+export async function DELETE(request: Request): Promise<Response> {
+  const blocked = await guard(request);
+  if (blocked) {
+    return blocked;
+  }
+
+  const id = new URL(request.url).searchParams.get("id") ?? "";
+  if (!ID_PATTERN.test(id)) {
+    return fail(400, "invalid_request", "A valid key id is required.");
+  }
+
+  try {
+    const result = await removeKey(id);
+    if (!result.ok) {
+      return fail(result.status, result.code, result.message);
+    }
+    return reply({ success: true });
+  } catch {
+    return fail(500, "storage_error", "The key could not be removed. Try again.");
+  }
+}
+
+===== FILE: .\src\app\api\generate-metadata\route.ts =====
+
+import { randomUUID } from "node:crypto";
+import {
+  effectiveKeywordCount,
+  getPlatformProfile,
+  isPlatformId,
+} from "../../../lib/platforms/profiles";
+import { isKnownGeminiModel } from "../../../lib/providers/gemini-models";
+import { generateStrictMetadata } from "../../../lib/server/generateStrictMetadata";
+import { getCurrentUser, saveHistory } from "../../../lib/server/history";
+import { checkRateLimit } from "../../../lib/server/rateLimit";
+import {
+  cleanFileName,
+  formField,
+  isSameOrigin,
+  jsonError,
+  readUploadedImage,
+} from "../../../lib/server/requestUtils";
+
+const RATE_LIMIT_PER_MINUTE = 120;
+
+export async function POST(request: Request): Promise<Response> {
+  const requestId = randomUUID();
+
+  if (!isSameOrigin(request)) {
+    return jsonError(403, "forbidden", "This request was not allowed.", false, requestId);
+  }
+
+  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const limit = checkRateLimit(`generate:${client}`, RATE_LIMIT_PER_MINUTE, 60_000);
+  if (!limit.allowed) {
+    return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", true, requestId, {
+      "Retry-After": String(limit.retryAfterSeconds),
+    });
+  }
+
+  const who = await getCurrentUser();
+  if (who.configured && !who.userId) {
+    return jsonError(401, "unauthenticated", "Please sign in.", false, requestId);
+  }
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return jsonError(400, "invalid_request", "The upload could not be read.", false, requestId);
+  }
+
+  const model = formField(form, "model");
+  const platform = formField(form, "platform");
+  const receivedCount = formField(form, "keywordCount");
+  const requested = Number(receivedCount);
+
+  if (formField(form, "provider") !== "gemini") {
+    return jsonError(400, "unsupported_provider", "Only Google Gemini is connected so far.", false, requestId);
+  }
+  if (!isKnownGeminiModel(model)) {
+    return jsonError(400, "unsupported_model", "That model is not in the supported list.", false, requestId);
+  }
+  if (!isPlatformId(platform)) {
+    return jsonError(400, "invalid_request", "Unknown platform.", false, requestId);
+  }
+  if (receivedCount.trim() === "" || !Number.isInteger(requested) || requested < 1 || requested > 50) {
+    return jsonError(
+      400,
+      "invalid_request",
+      `The keyword count must be a whole number from 1 to 50 (received "${receivedCount.slice(0, 20)}").`,
+      false,
+      requestId,
+    );
+  }
+
+  const upload = await readUploadedImage(form, requestId);
+  if (!upload.ok) {
+    return upload.response;
+  }
+
+  const profile = getPlatformProfile(platform);
+  const count = effectiveKeywordCount(profile, requested);
+
+  const generated = await generateStrictMetadata({
+    model,
+    mimeType: upload.mimeType,
+    base64: Buffer.from(upload.bytes).toString("base64"),
+    count,
+  });
+
+  if (!generated.ok) {
+    return jsonError(
+      generated.status,
+      generated.code,
+      generated.message,
+      generated.retryable,
+      requestId,
+      generated.retryAfterSeconds !== null
+        ? { "Retry-After": String(generated.retryAfterSeconds) }
+        : undefined,
+    );
+  }
+
+  const { title, description, keywords } = generated.data;
+  const warnings = generated.warnings;
+
+  let saved = false;
+  if (who.userId) {
+    saved = await saveHistory(who.userId, {
+      kind: "metadata",
+      fileName: cleanFileName(formField(form, "fileName")),
+      provider: "gemini",
+      model,
+      platform: profile.id,
+      result: { title, description, keywords, warnings },
+    });
+  }
+
+  return Response.json(
+    {
+      success: true,
+      data: { title, description, keywords, warnings },
+      keywordTarget: count,
+      provider: "gemini",
+      model,
+      platform: profile.id,
+      saved,
+      requestId,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+===== FILE: .\src\app\api\generate-prompt\route.ts =====
+
+import { randomUUID } from "node:crypto";
+import {
+  buildPromptRequest,
+  buildPromptSchema,
+  getPromptDetail,
+  getPromptStyle,
+  isPromptDetailId,
+  isPromptStyleId,
+  normalizePrompt,
+} from "../../../lib/prompt/generation";
+import { isKnownGeminiModel } from "../../../lib/providers/gemini-models";
+import { getCurrentUser, saveHistory } from "../../../lib/server/history";
+import { checkRateLimit } from "../../../lib/server/rateLimit";
+import {
+  cleanFileName,
+  formField,
+  isSameOrigin,
+  jsonError,
+  readUploadedImage,
+} from "../../../lib/server/requestUtils";
+import { runGeminiWithKeys } from "../../../lib/server/runGemini";
+
+const RATE_LIMIT_PER_MINUTE = 120;
+
+export async function POST(request: Request): Promise<Response> {
+  const requestId = randomUUID();
+
+  if (!isSameOrigin(request)) {
+    return jsonError(403, "forbidden", "This request was not allowed.", false, requestId);
+  }
+
+  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const limit = checkRateLimit(`generate:${client}`, RATE_LIMIT_PER_MINUTE, 60_000);
+  if (!limit.allowed) {
+    return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", true, requestId, {
+      "Retry-After": String(limit.retryAfterSeconds),
+    });
+  }
+
+  const who = await getCurrentUser();
+  if (who.configured && !who.userId) {
+    return jsonError(401, "unauthenticated", "Please sign in.", false, requestId);
+  }
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return jsonError(400, "invalid_request", "The upload could not be read.", false, requestId);
+  }
+
+  const model = formField(form, "model");
+  const styleId = formField(form, "style");
+  const detailId = formField(form, "detail");
+
+  if (formField(form, "provider") !== "gemini") {
+    return jsonError(400, "unsupported_provider", "Only Google Gemini is connected so far.", false, requestId);
+  }
+  if (!isKnownGeminiModel(model)) {
+    return jsonError(400, "unsupported_model", "That model is not in the supported list.", false, requestId);
+  }
+  if (!isPromptStyleId(styleId) || !isPromptDetailId(detailId)) {
+    return jsonError(400, "invalid_request", "Unknown prompt style or detail level.", false, requestId);
+  }
+
+  const upload = await readUploadedImage(form, requestId);
+  if (!upload.ok) {
+    return upload.response;
+  }
+
+  const style = getPromptStyle(styleId);
+  const detail = getPromptDetail(detailId);
+
+  const run = await runGeminiWithKeys({
+    model,
+    mimeType: upload.mimeType,
+    base64: Buffer.from(upload.bytes).toString("base64"),
+    prompt: buildPromptRequest(style, detail),
+    schema: buildPromptSchema(),
+    keywordMax: 1,
+  });
+
+  if (!run.ok) {
+    return jsonError(
+      run.status,
+      run.code,
+      run.message,
+      run.retryable,
+      requestId,
+      run.retryAfterSeconds !== null ? { "Retry-After": String(run.retryAfterSeconds) } : undefined,
+    );
+  }
+
+  const normalized = normalizePrompt(run.raw, detail);
+  if (!normalized.ok) {
+    return jsonError(502, "bad_response", `${normalized.message} Try again.`, true, requestId);
+  }
+
+  let saved = false;
+  if (who.userId) {
+    saved = await saveHistory(who.userId, {
+      kind: "prompt",
+      fileName: cleanFileName(formField(form, "fileName")),
+      provider: "gemini",
+      model,
+      platform: null,
+      result: { prompt: normalized.prompt, style: style.id, detail: detail.id },
+    });
+  }
+
+  return Response.json(
+    {
+      success: true,
+      data: { prompt: normalized.prompt, warnings: normalized.warnings },
+      provider: "gemini",
+      model,
+      saved,
+      requestId,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+===== FILE: .\src\app\api\provider-status\route.ts =====
+
+import { getCandidates } from "../../../lib/server/keyStore";
+
+// Returns only yes/no. Never returns a key.
+export async function GET(): Promise<Response> {
+  const result = await getCandidates("gemini");
+  // "All keys disabled" still counts as configured here, so the Metadata Generator lets the
+  // request through and the server answers with the precise reason.
+  const configured = result.ok || result.code === "no_enabled_key";
+  return Response.json({ gemini: { configured } }, { headers: { "Cache-Control": "no-store" } });
+}
+
+
+
+
+===== FILE: .\src\app\(app)\admin\page.tsx =====
+
+import type { Metadata } from "next";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { EmptyState } from "../../../components/EmptyState";
+import { getAllowedEmails } from "../../../lib/auth/guards";
+import { getAccess } from "../../../lib/auth/session";
+import type { PublicKey } from "../../../lib/keys/shared";
+import { MAX_KEYS_PER_PROVIDER, PROVIDERS } from "../../../lib/providers/catalog";
+import { getCandidates, getStorageState, listKeys } from "../../../lib/server/keyStore";
+import "./admin.css";
+
+export const metadata: Metadata = {
+  title: "Admin",
+};
+
+export default async function AdminPage() {
+  const access = await getAccess();
+
+  if (!access.ok) {
+    if (access.status === 401 || access.code === "not_allowed") {
+      redirect("/login");
+    }
+    return (
+      <div className="page">
+        <EmptyState
+          icon="admin"
+          title="Admin panel unavailable"
+          description={`${access.message} The admin panel needs sign-in and the profiles table to check who is an administrator.`}
+          action={{ href: "/dashboard", label: "Back to dashboard" }}
+        />
+      </div>
+    );
+  }
+
+  if (access.role !== "admin") {
+    return (
+      <div className="page">
+        <EmptyState
+          icon="admin"
+          title="Admins only"
+          description="Your account does not have the admin role. Only an administrator can open this page."
+          action={{ href: "/dashboard", label: "Back to dashboard" }}
+        />
+      </div>
+    );
+  }
+
+  const storage = getStorageState();
+  let keys: PublicKey[] = [];
+  let keysError: string | null = null;
+
+  if (storage.state === "ready") {
+    try {
+      keys = await listKeys();
+    } catch {
+      keysError =
+        "The saved keys could not be read. Check that the api_keys SQL was run and that SUPABASE_SERVICE_ROLE_KEY is correct.";
+    }
+  }
+
+  // Only the yes/no result and its source are used. No key value is ever shown.
+  const gemini = await getCandidates("gemini");
+  const geminiText = gemini.ok
+    ? gemini.source === "store"
+      ? "Available (saved key)"
+      : "Available (environment key)"
+    : gemini.message;
+
+  const keyCountsKnown = storage.state === "ready" && keysError === null;
+
+  return (
+    <div className="page">
+      <header className="page-header">
+        <span className="eyebrow">Administration</span>
+        <h1>Admin Control Panel</h1>
+        <p>
+          Real status only. If something is not measured yet, it says so instead of showing a
+          made-up number.
+        </p>
+      </header>
+
+      <section aria-labelledby="ad-session-heading">
+        <div className="section-head">
+          <h2 id="ad-session-heading" className="section-title">
+            Your session
+          </h2>
+        </div>
+        <div className="status-grid">
+          <div className="card status-card">
+            <span className="status-label">Signed in as</span>
+            <span className="ad-value">{access.email}</span>
+            <span className="status-detail">Confirmed by Supabase on the server.</span>
+          </div>
+          <div className="card status-card">
+            <span className="status-label">Role</span>
+            <span className="status-pill ad-ok">
+              <span className="status-dot" aria-hidden="true" />
+              Administrator
+            </span>
+            <span className="status-detail">Read from the profiles table. Browsers cannot change it.</span>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="ad-setup-heading">
+        <div className="section-head">
+          <h2 id="ad-setup-heading" className="section-title">
+            Setup status
+          </h2>
+        </div>
+        <div className="status-grid">
+          <div className="card status-card">
+            <span className="status-label">Allowed accounts</span>
+            <span className="ad-value">{getAllowedEmails().length}</span>
+            <span className="status-detail">Emails in ALLOWED_EMAILS who may sign in.</span>
+          </div>
+          <div className="card status-card">
+            <span className="status-label">Key storage</span>
+            <span className={`status-pill ${storage.state === "ready" ? "ad-ok" : ""}`}>
+              <span className="status-dot" aria-hidden="true" />
+              {storage.state === "ready" ? "Ready" : "Not ready"}
+            </span>
+            <span className="status-detail">{keysError ?? storage.message}</span>
+          </div>
+          <div className="card status-card">
+            <span className="status-label">Gemini key for generation</span>
+            <span className={`status-pill ${gemini.ok ? "ad-ok" : ""}`}>
+              <span className="status-dot" aria-hidden="true" />
+              {gemini.ok ? "Available" : "Not available"}
+            </span>
+            <span className="status-detail">{geminiText}</span>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="ad-providers-heading">
+        <div className="section-head">
+          <h2 id="ad-providers-heading" className="section-title">
+            AI provider keys
+          </h2>
+          <Link href="/settings/api-keys" className="button">
+            Open API Key Manager
+          </Link>
+        </div>
+        <div className="card ad-scroll">
+          <table className="ad-table">
+            <thead>
+              <tr>
+                <th scope="col">Provider</th>
+                <th scope="col">Saved keys</th>
+                <th scope="col">Enabled</th>
+                <th scope="col">Used by tools</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PROVIDERS.map((provider) => {
+                const mine = keys.filter((key) => key.provider === provider.id);
+                return (
+                  <tr key={provider.id}>
+                    <th scope="row">{provider.name}</th>
+                    <td>
+                      {keyCountsKnown ? `${mine.length} / ${MAX_KEYS_PER_PROVIDER}` : "Unknown"}
+                    </td>
+                    <td>
+                      {keyCountsKnown ? mine.filter((key) => key.enabled).length : "Unknown"}
+                    </td>
+                    <td>{provider.id === "gemini" ? "Metadata Generator" : "Not connected yet"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="section-note">
+          Counts come from the saved keys. A saved key is not proof that it works. The key manager
+          shows what the last real request did.
+        </p>
+      </section>
+
+      <section aria-labelledby="ad-data-heading">
+        <div className="section-head">
+          <h2 id="ad-data-heading" className="section-title">
+            Jobs and usage
+          </h2>
+        </div>
+        <EmptyState
+          icon="history"
+          title="No data yet"
+          description="Job history is not recorded yet, so there are no job counts, errors or usage figures to show."
+        />
+      </section>
+    </div>
+  );
+}
+
+===== FILE: .\src\components\api-keys\ApiKeyManager.tsx =====
+
+"use client";
+
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
+import { EmptyState } from "../EmptyState";
+import { Icon } from "../Icons";
+import { MAX_KEYS_PER_PROVIDER, PROVIDERS, type ProviderId } from "../../lib/providers/catalog";
+import {
+  validateApiKey,
+  validateLabel,
+  type LastResult,
+  type PublicKey,
+  type StorageState,
+} from "../../lib/keys/shared";
+
+type Message = { kind: "success" | "error"; text: string } | null;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPublicKey(value: unknown): value is PublicKey {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.provider === "string" &&
+    PROVIDERS.some((provider) => provider.id === value.provider) &&
+    typeof value.label === "string" &&
+    typeof value.masked === "string" &&
+    typeof value.enabled === "boolean" &&
+    typeof value.createdAt === "string" &&
+    (value.lastUsedAt === null || typeof value.lastUsedAt === "string") &&
+    (value.lastResult === null ||
+      value.lastResult === "ok" ||
+      value.lastResult === "rejected" ||
+      value.lastResult === "rate_limited")
+  );
+}
+
+function isStorageState(value: unknown): value is StorageState {
+  return (
+    isRecord(value) &&
+    typeof value.message === "string" &&
+    (value.state === "ready" ||
+      value.state === "missing_secret" ||
+      value.state === "unavailable" ||
+      value.state === "error")
+  );
+}
+
+function readList(payload: unknown): { storage: StorageState; keys: PublicKey[] } | null {
+  if (!isRecord(payload) || payload.success !== true || !isStorageState(payload.storage)) {
+    return null;
+  }
+  if (!Array.isArray(payload.keys) || !payload.keys.every(isPublicKey)) {
+    return null;
+  }
+  return { storage: payload.storage, keys: payload.keys };
+}
+
+function readKey(payload: unknown): PublicKey | null {
+  return isRecord(payload) && payload.success === true && isPublicKey(payload.key)
+    ? payload.key
+    : null;
+}
+
+function readMessage(payload: unknown, fallback: string): string {
+  return isRecord(payload) && typeof payload.message === "string" ? payload.message : fallback;
+}
+
+function resultText(result: LastResult): string {
+  switch (result) {
+    case "ok":
+      return "Last request worked";
+    case "rejected":
+      return "Last request was rejected by the provider";
+    case "rate_limited":
+      return "Hit a rate limit on the last request";
+    default:
+      return "Not tested yet";
+  }
+}
+
+export function ApiKeyManager() {
+  const [selectedId, setSelectedId] = useState<ProviderId>(PROVIDERS[0].id);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [storage, setStorage] = useState<StorageState | null>(null);
+  const [keys, setKeys] = useState<PublicKey[]>([]);
+
+  const [label, setLabel] = useState("");
+  const [secret, setSecret] = useState("");
+  const [reveal, setReveal] = useState(false);
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [message, setMessage] = useState<Message>(null);
+
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  const provider = PROVIDERS.find((entry) => entry.id === selectedId) ?? PROVIDERS[0];
+  const providerKeys = keys.filter((key) => key.provider === selectedId);
+  const enabledCount = providerKeys.filter((key) => key.enabled).length;
+  const storageReady = storage?.state === "ready";
+  const atLimit = providerKeys.length >= MAX_KEYS_PER_PROVIDER;
+
+  const [reloadTick, setReloadTick] = useState(0);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadKeys() {
+      try {
+        const response = await fetch("/api/api-keys", {
+          cache: "no-store",
+        });
+        const payload: unknown = await response.json().catch(() => null);
+        const list = readList(payload);
+
+        if (ignore) return;
+
+        if (!response.ok || !list) {
+          setLoadError(
+            readMessage(payload, "The server sent an unexpected answer."),
+          );
+          return;
+        }
+
+        setStorage(list.storage);
+        setKeys(list.keys);
+        setLoadError(null);
+      } catch {
+        if (!ignore) {
+          setLoadError(
+            "Could not reach the server. Check that the dev server is running.",
+          );
+        }
+      } finally {
+        if (!ignore) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadKeys();
+
+    return () => {
+      ignore = true;
+    };
+  }, [reloadTick]);
+
+  function retryLoad() {
+    setLoading(true);
+    setReloadTick((tick) => tick + 1);
+  }
+
+  function selectProvider(id: ProviderId) {
+    setSelectedId(id);
+    // Never carry a half-typed key over to another provider.
+    setSecret("");
+    setReveal(false);
+    setFieldError(null);
+    setConfirmId(null);
+    setMessage(null);
+  }
+
+  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let nextIndex = index;
+    if (event.key === "ArrowRight") {
+      nextIndex = (index + 1) % PROVIDERS.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex = (index - 1 + PROVIDERS.length) % PROVIDERS.length;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    const next = PROVIDERS[nextIndex];
+    selectProvider(next.id);
+    tabRefs.current[next.id]?.focus();
+  }
+
+  async function handleAdd(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (adding || !storageReady) {
+      return;
+    }
+
+    const problem = validateLabel(label) ?? validateApiKey(secret);
+    if (problem) {
+      setFieldError(problem);
+      return;
+    }
+    if (providerKeys.some((key) => key.label.toLowerCase() === label.trim().toLowerCase())) {
+      setFieldError("A key with this label already exists for this provider.");
+      return;
+    }
+
+    setFieldError(null);
+    setMessage(null);
+    setAdding(true);
+    try {
+      const response = await fetch("/api/api-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: selectedId,
+          label: label.trim(),
+          apiKey: secret.trim(),
+        }),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      const saved = readKey(payload);
+      if (saved) {
+        setKeys((previous) => [...previous, saved]);
+        // The typed key is removed from the page as soon as it is saved.
+        setLabel("");
+        setSecret("");
+        setReveal(false);
+        setMessage({ kind: "success", text: `Saved "${saved.label}". It is encrypted on this computer.` });
+      } else {
+        setMessage({ kind: "error", text: readMessage(payload, "The key could not be saved.") });
+      }
+    } catch {
+      setMessage({ kind: "error", text: "Could not reach the server. The key was not saved." });
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function handleToggle(key: PublicKey) {
+    if (busyId) {
+      return;
+    }
+    setBusyId(key.id);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/api-keys", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: key.id, enabled: !key.enabled }),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      const updated = readKey(payload);
+      if (updated) {
+        setKeys((previous) => previous.map((entry) => (entry.id === updated.id ? updated : entry)));
+        setMessage({
+          kind: "success",
+          text: `"${updated.label}" is now ${updated.enabled ? "enabled" : "disabled"}.`,
+        });
+      } else {
+        setMessage({ kind: "error", text: readMessage(payload, "The key could not be updated.") });
+      }
+    } catch {
+      setMessage({ kind: "error", text: "Could not reach the server. Nothing was changed." });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleRemove(key: PublicKey) {
+    if (busyId) {
+      return;
+    }
+    setBusyId(key.id);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/api-keys?id=${encodeURIComponent(key.id)}`, {
+        method: "DELETE",
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (isRecord(payload) && payload.success === true) {
+        setKeys((previous) => previous.filter((entry) => entry.id !== key.id));
+        setConfirmId(null);
+        setMessage({ kind: "success", text: `Removed "${key.label}".` });
+      } else {
+        setMessage({ kind: "error", text: readMessage(payload, "The key could not be removed.") });
+      }
+    } catch {
+      setMessage({ kind: "error", text: "Could not reach the server. Nothing was removed." });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="page">
+      <header className="page-header">
+        <span className="eyebrow">Settings</span>
+        <h1>API Key Manager</h1>
+        <p>
+          Manage the AI provider keys METAFORGE AI PRO uses. Saved keys are encrypted on the
+          server and are never shown again after they are saved.
+        </p>
+      </header>
+
+      {loading ? (
+        <p className="ak-loading" role="status">
+          Loading saved keys...
+        </p>
+      ) : loadError ? (
+        <div className="card ak-notice" data-level="warn" role="alert">
+          <span className="ak-notice-icon">
+            <Icon name="key" size={20} />
+          </span>
+          <div>
+            <h2 className="section-title">Could not load the key manager</h2>
+            <p>{loadError}</p>
+            <button type="button" className="button" onClick={retryLoad}>
+              Try again
+            </button>
+          </div>
+        </div>
+      ) : storage ? (
+        <div className="card ak-notice" data-level={storageReady ? "ok" : "warn"} role="note">
+          <span className="ak-notice-icon">
+            <Icon name="key" size={20} />
+          </span>
+          <div>
+            <h2 className="section-title">
+              {storageReady ? "Key storage is active (local development)" : "Key storage is not ready"}
+            </h2>
+            <p>{storage.message}</p>
+            {storage.state === "missing_secret" ? (
+              <pre className="ak-code">
+                {`$bytes = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+Add-Content -Path ".env.local" -Value ("\`nKEY_ENCRYPTION_SECRET=" + [Convert]::ToBase64String($bytes))`}
+              </pre>
+            ) : null}
+            {storageReady ? (
+              <p>
+                There is no sign-in yet, so anyone using this computer can manage these keys. Keep
+                the encryption secret private.
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      <section aria-labelledby="ak-providers-heading">
+        <div className="section-head">
+          <h2 id="ak-providers-heading" className="section-title">
+            Providers
+          </h2>
+          <span className="section-note">Up to {MAX_KEYS_PER_PROVIDER} keys per provider</span>
+        </div>
+
+        <div className="ak-tabs" role="tablist" aria-label="AI providers">
+          {PROVIDERS.map((entry, index) => (
+            <button
+              key={entry.id}
+              ref={(node) => {
+                tabRefs.current[entry.id] = node;
+              }}
+              type="button"
+              role="tab"
+              id={`ak-tab-${entry.id}`}
+              className="ak-tab"
+              aria-selected={entry.id === selectedId}
+              aria-controls="ak-panel"
+              tabIndex={entry.id === selectedId ? 0 : -1}
+              onClick={() => selectProvider(entry.id)}
+              onKeyDown={(event) => handleTabKeyDown(event, index)}
+            >
+              {entry.name}
+              <span className="ak-tab-count">
+                {keys.filter((key) => key.provider === entry.id).length}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div
+          className="card ak-panel"
+          id="ak-panel"
+          role="tabpanel"
+          aria-labelledby={`ak-tab-${provider.id}`}
+        >
+          <div className="ak-panel-head">
+            <div className="ak-panel-title">
+              <span className="tool-icon">
+                <Icon name="key" />
+              </span>
+              <div>
+                <h3>{provider.name}</h3>
+                <p className="ak-count">
+                  {providerKeys.length} / {MAX_KEYS_PER_PROVIDER} keys configured
+                </p>
+              </div>
+            </div>
+            <span className="status-pill">
+              <span className="status-dot" aria-hidden="true" />
+              {providerKeys.length === 0
+                ? "Not configured"
+                : `${enabledCount} of ${providerKeys.length} enabled`}
+            </span>
+          </div>
+
+          <p className="ak-summary">{provider.summary}</p>
+          {provider.id !== "gemini" ? (
+            <p className="ak-summary">
+              Keys saved here are not used by any tool yet. Only Google Gemini is connected to the
+              Metadata Generator so far.
+            </p>
+          ) : null}
+
+          <form className="ak-form" onSubmit={handleAdd} noValidate>
+            <div className="ak-field">
+              <label className="ak-label" htmlFor="ak-label">
+                Key label
+              </label>
+              <input
+                id="ak-label"
+                className="ak-input"
+                type="text"
+                value={label}
+                maxLength={40}
+                placeholder={`${provider.name} Primary`}
+                autoComplete="off"
+                disabled={!storageReady || atLimit || adding}
+                onChange={(event) => setLabel(event.target.value)}
+              />
+            </div>
+
+            <div className="ak-field ak-field-wide">
+              <label className="ak-label" htmlFor="ak-secret">
+                API key
+              </label>
+              <div className="ak-secret-row">
+                <input
+                  id="ak-secret"
+                  className="ak-input"
+                  type={reveal ? "text" : "password"}
+                  value={secret}
+                  placeholder="Paste the key here"
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={!storageReady || atLimit || adding}
+                  onChange={(event) => setSecret(event.target.value)}
+                />
+                <button
+                  type="button"
+                  className="button"
+                  aria-pressed={reveal}
+                  disabled={!storageReady || atLimit || adding}
+                  onClick={() => setReveal((value) => !value)}
+                >
+                  {reveal ? "Hide" : "Show"}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="button button-primary ak-submit"
+              disabled={!storageReady || atLimit || adding}
+            >
+              {adding ? "Saving..." : "Add API Key"}
+            </button>
+          </form>
+
+          {atLimit ? (
+            <p className="ak-error" role="alert">
+              You have reached the limit of {MAX_KEYS_PER_PROVIDER} keys for {provider.name}. Remove
+              one to add another.
+            </p>
+          ) : null}
+          {fieldError ? (
+            <p className="ak-error" role="alert">
+              {fieldError}
+            </p>
+          ) : null}
+          <p className="section-note">
+            Show and Hide only affect the key you are typing. Saved keys are never sent back to
+            this page, so only a masked value can be shown.
+          </p>
+
+          <div role="status" aria-live="polite">
+            {message ? (
+              <p className="ak-message" data-kind={message.kind}>
+                {message.text}
+              </p>
+            ) : null}
+          </div>
+
+          {loading ? null : providerKeys.length === 0 ? (
+            <EmptyState
+              icon="key"
+              title="No keys saved"
+              description={`No ${provider.name} keys are saved yet. Add one above. Each saved key appears here with enable, disable and remove controls.`}
+            />
+          ) : (
+            <ul className="ak-list" aria-label={`${provider.name} keys`}>
+              {providerKeys.map((key) => (
+                <li key={key.id} className="ak-row" data-enabled={key.enabled ? "true" : "false"}>
+                  <div className="ak-row-main">
+                    <strong className="ak-row-label">{key.label}</strong>
+                    <code className="ak-masked" aria-label="Saved key, hidden">
+                      {key.masked}
+                    </code>
+                    <span className="ak-row-meta">
+                      {provider.name} - {key.enabled ? "Enabled" : "Disabled"} -{" "}
+                      {resultText(key.lastResult)} - Added{" "}
+                      {new Date(key.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+
+                  <div className="ak-row-actions">
+                    <button
+                      type="button"
+                      role="switch"
+                      className="ak-switch"
+                      aria-checked={key.enabled}
+                      aria-label={`${key.enabled ? "Disable" : "Enable"} ${key.label}`}
+                      disabled={busyId !== null}
+                      onClick={() => handleToggle(key)}
+                    />
+                    <span className="ak-switch-text">{key.enabled ? "Enabled" : "Disabled"}</span>
+
+                    {confirmId === key.id ? (
+                      <span className="ak-confirm" role="group" aria-label={`Confirm removing ${key.label}`}>
+                        <span>Remove this key?</span>
+                        <button
+                          type="button"
+                          className="button"
+                          disabled={busyId !== null}
+                          onClick={() => setConfirmId(null)}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="button ak-danger"
+                          disabled={busyId !== null}
+                          onClick={() => handleRemove(key)}
+                        >
+                          {busyId === key.id ? "Removing..." : "Yes, remove"}
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="button"
+                        disabled={busyId !== null}
+                        onClick={() => setConfirmId(key.id)}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="ak-actions">
+            <a
+              className="button"
+              href={provider.docsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {provider.docsLabel}
+              <Icon name="arrowRight" size={16} />
+            </a>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+===== FILE: .\package.json =====
+
+{
+  "name": "metaforge-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@imgly/background-removal": "^1.7.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.3",
+    "jszip": "^3.10.2",
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+===== ADOBE KEYWORDS PLACEHOLDER SEARCH =====
+C:\Projects\metaforge-ai-pro\metaforge-web\src\app\(app)\[tool]\page.tsx:74: title="Not available yet"

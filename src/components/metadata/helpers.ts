@@ -143,3 +143,13 @@ export function triggerDownload(href: string, filename: string): void {
   link.click();
   link.remove();
 }
+export function fileExtension(filename: string): string {
+  const name = filename.trim();
+  const dotIndex = name.lastIndexOf(".");
+
+  if (dotIndex < 0 || dotIndex === name.length - 1) {
+    return "";
+  }
+
+  return name.slice(dotIndex + 1).toLowerCase();
+}

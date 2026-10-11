@@ -324,14 +324,47 @@ export function MetadataWorkspace() {
     let overflow = 0;
 
     for (const file of incoming) {
-      const extension = fileExtension(file.name);
-      const isSvg = extension === ".svg" || file.type === "image/svg+xml";
-      if (extension === ".eps" || extension === ".ai" || extension === ".ps") {
-        problems.push(
-          `${file.name}: EPS and AI files cannot be rendered yet because no server-side renderer is installed. Export the file as SVG, PNG or JPG.`,
-        );
+      // EPS_FAST_PATH: EPS is accepted by extension here. Its contents are checked before
+      // conversion (eps.ts) and again on the server (convert-eps route).
+      if (/\.eps$/i.test(file.name)) {
+        if (file.size === 0) {
+          problems.push(`${file.name}: the file is empty.`);
+          continue;
+        }
+        if (file.size > 8 * 1024 * 1024) {
+          problems.push(`${file.name}: the EPS is larger than 8 MB, which is the conversion limit.`);
+          continue;
+        }
+        const epsPrint = fingerprint(file);
+        if (known.has(epsPrint)) {
+          duplicates += 1;
+          continue;
+        }
+        if (room <= 0) {
+          overflow += 1;
+          continue;
+        }
+        idCounter.current += 1;
+        accepted.push({
+          id: `image-${idCounter.current}`,
+          file,
+          url: URL.createObjectURL(file),
+        });
+        known.add(epsPrint);
+        room -= 1;
         continue;
       }
+      const extension = fileExtension(file.name);
+  const isSvg = extension === ".svg" || file.type === "image/svg+xml";    
+    const lowerName = file.name.toLowerCase();
+const isVector = /\.(svg|eps|ai|ps)$/.test(lowerName);
+
+if (!isVector && !ACCEPTED_TYPES.includes(file.type)) {
+  problems.push(
+    `${file.name}: unsupported file type. Use JPG, PNG, WEBP, SVG, EPS or AI.`
+  );
+  continue;
+}  
       // SVG files are checked by content when the image is prepared, because browsers
       // often report a missing or unusual type for them.
       if (!isSvg && !ACCEPTED_TYPES.includes(file.type)) {
@@ -789,8 +822,7 @@ export function MetadataWorkspace() {
                 </span>
                 <p className="mw-drop-title">Drag &amp; Drop Images here</p>
                 <p className="mw-drop-hint">
-                  JPG, PNG, WEBP, SVG (max {MAX_FILES} files, {MAX_FILE_MB} MB each). EPS and AI
-                  files are not supported yet; export them as SVG, PNG or JPG.
+                  JPG, PNG, WEBP, SVG (max {MAX_FILES} files, {MAX_FILE_MB} MB each). EPS files are converted automatically (needs Ghostscript). AI files are not supported yet.
                 </p>
                 <button type="button" className="mw-select-files" onClick={openPicker}>
                   <ToolIcon name="image" size={16} />

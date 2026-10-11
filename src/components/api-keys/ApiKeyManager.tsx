@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  useCallback,
   useEffect,
   useRef,
   useState,
@@ -112,32 +111,54 @@ export function ApiKeyManager() {
   const storageReady = storage?.state === "ready";
   const atLimit = providerKeys.length >= MAX_KEYS_PER_PROVIDER;
 
-  const load = useCallback(async () => {
-    try {
-      const response = await fetch("/api/api-keys", { cache: "no-store" });
-      const payload: unknown = await response.json().catch(() => null);
-      const list = readList(payload);
-      if (!list) {
-        setLoadError(readMessage(payload, "The server sent an unexpected answer."));
-        return;
-      }
-      setStorage(list.storage);
-      setKeys(list.keys);
-      setLoadError(null);
-    } catch {
-      setLoadError("Could not reach the server. Check that the dev server is running.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let ignore = false;
+
+    async function loadKeys() {
+      try {
+        const response = await fetch("/api/api-keys", {
+          cache: "no-store",
+        });
+        const payload: unknown = await response.json().catch(() => null);
+        const list = readList(payload);
+
+        if (ignore) return;
+
+        if (!response.ok || !list) {
+          setLoadError(
+            readMessage(payload, "The server sent an unexpected answer."),
+          );
+          return;
+        }
+
+        setStorage(list.storage);
+        setKeys(list.keys);
+        setLoadError(null);
+      } catch {
+        if (!ignore) {
+          setLoadError(
+            "Could not reach the server. Check that the dev server is running.",
+          );
+        }
+      } finally {
+        if (!ignore) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadKeys();
+
+    return () => {
+      ignore = true;
+    };
+  }, [reloadTick]);
 
   function retryLoad() {
     setLoading(true);
-    void load();
+    setReloadTick((tick) => tick + 1);
   }
 
   function selectProvider(id: ProviderId) {

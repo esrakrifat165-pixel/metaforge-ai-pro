@@ -1,0 +1,74 @@
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { EmptyState } from "../../../components/EmptyState";
+import { NAV_ITEMS, getNavItemByHref, type NavItem } from "../../../lib/navigation";
+
+// Any address that is not in the list below shows a normal 404 page.
+
+type ToolPageProps = {
+  params: Promise<{ tool: string }>;
+};
+
+// /dashboard has its own page. /admin stays hidden until real admin checks exist.
+const EXCLUDED_HREFS = new Set(["/dashboard", "/admin"]);
+
+// This page only serves one-part addresses such as /history.
+// Two-part addresses such as /settings/api-keys have their own page folders.
+function isSingleSegment(href: string): boolean {
+  return href.indexOf("/", 1) === -1;
+}
+
+function getPlaceholderItem(slug: string): NavItem | undefined {
+  const item = getNavItemByHref(`/${slug}`);
+  if (!item || EXCLUDED_HREFS.has(item.href) || !isSingleSegment(item.href)) {
+    return undefined;
+  }
+  return item;
+}
+
+export function generateStaticParams() {
+  return NAV_ITEMS.filter(
+    (item) => !EXCLUDED_HREFS.has(item.href) && isSingleSegment(item.href),
+  ).map((item) => ({
+    tool: item.href.slice(1),
+  }));
+}
+
+export async function generateMetadata({ params }: ToolPageProps): Promise<Metadata> {
+  const { tool } = await params;
+  const item = getPlaceholderItem(tool);
+  return { title: item ? item.label : "Page not found" };
+}
+
+export default async function ToolPlaceholderPage({ params }: ToolPageProps) {
+  const { tool } = await params;
+  const item = getPlaceholderItem(tool);
+
+  if (!item) {
+    notFound();
+  }
+
+  return (
+    <div className="page">
+      <header className="page-header">
+        <span className="eyebrow">Planned: {item.phase}</span>
+        <h1>{item.label}</h1>
+        <p>{item.description}</p>
+      </header>
+
+      <EmptyState
+        icon={item.icon}
+        title="Not available yet"
+        description={`${item.label} is planned for ${item.phase}. Nothing on this page processes data yet.`}
+        action={{ href: "/dashboard", label: "Back to dashboard" }}
+      />
+
+      {item.href === "/settings" ? (
+        <p className="section-note">
+          The light and dark theme switch in the top bar already works. Provider and
+          model settings arrive in later phases.
+        </p>
+      ) : null}
+    </div>
+  );
+}

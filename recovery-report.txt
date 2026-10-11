@@ -1,0 +1,103 @@
+Recovery report 2026-10-11 15:37:38
+PowerShell version: 5.1.26100.9596
+Mode: APPLY
+
+== Candidates for MetadataWorkspace.tsx ==
+  [current file] 87204 bytes, first bytes: FF FE 22 00 75 00 73 00, encoding: UTF16-LE-BOM
+      use-client=True exports-MetadataWorkspace=True braces-balanced=True complete=True has-AllImageResults=False uses-queue=True -> USABLE
+  [git 28cf9df] 42332 bytes, first bytes: 22 75 73 65 20 63 6C 69, encoding: UTF8
+      use-client=True exports-MetadataWorkspace=True braces-balanced=True complete=True has-AllImageResults=False uses-queue=True -> USABLE
+  [git 9d01b0a] 32545 bytes, first bytes: 22 75 73 65 20 63 6C 69, encoding: UTF8
+      use-client=True exports-MetadataWorkspace=True braces-balanced=True complete=True has-AllImageResults=False uses-queue=False -> USABLE
+
+Chosen source: current file
+WARNING: the chosen source does not contain the All Image Results section. It must be added again.
+Saved a raw copy of the damaged file to .recovery\MetadataWorkspace.tsx.20261011-153738.damaged
+Rewrote MetadataWorkspace.tsx as UTF-8 without BOM (43601 bytes, first bytes: 22 75 73 65 20 63 6C 69)
+
+== Other source files that are not plain UTF-8 ==
+  src\components\SearchBox.css: UTF8-BOM (first bytes EF BB BF 2F 2A 20 54 6F)
+     converted to UTF-8 without BOM (original saved in .recovery\)
+  src\lib\supabase\server.ts: UTF8-BOM (first bytes EF BB BF 0A 69 6D 70 6F)
+     converted to UTF-8 without BOM (original saved in .recovery\)
+
+== Checks (real results) ==
+
+---- tsc ----
+MetadataWorkspace.backup.tsx(12,28): error TS2307: Cannot find module '../EmptyState' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(22,8): error TS2307: Cannot find module '../../lib/platforms/profiles' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(23,53): error TS2307: Cannot find module '../../lib/providers/gemini-models' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(42,8): error TS2307: Cannot find module './helpers' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(43,29): error TS2307: Cannot find module './ResultField' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(44,28): error TS2307: Cannot find module './ThumbStrip' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(45,45): error TS2307: Cannot find module './ToolIcons' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(46,66): error TS2307: Cannot find module './useMetadataQueue' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(532,26): error TS7006: Parameter 'key' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(564,16): error TS7006: Parameter 'previous' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(574,16): error TS7006: Parameter 'previous' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(649,38): error TS7006: Parameter 'key' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(730,41): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(849,41): error TS7006: Parameter 'option' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(866,45): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(1127,50): error TS7006: Parameter 'warning' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(1165,39): error TS7006: Parameter 'value' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(1166,36): error TS7006: Parameter 'previous' implicitly has an 'any' type.
+
+RESULT: tsc FAIL (exit code 2)
+
+---- lint ----
+
+> metaforge-web@0.1.0 lint
+> eslint
+
+
+C:\Projects\metaforge-ai-pro\metaforge-web\MetadataWorkspace.backup.tsx
+  1:0  error  Parsing error: File appears to be binary
+
+??? 1 problem (1 error, 0 warnings)
+
+
+RESULT: lint FAIL (exit code 1)
+
+---- build ----
+
+> metaforge-web@0.1.0 build
+> next build
+
+??? Next.js 16.4.0 (Turbopack)
+- Environments: .env.local
+??? Running next.config.ts took 43ms
+
+  Creating an optimized production build ...
+??? Compiled successfully in 7.0s
+  Running TypeScript ...
+MetadataWorkspace.backup.tsx(12,28): error TS2307: Cannot find module '../EmptyState' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(22,8): error TS2307: Cannot find module '../../lib/platforms/profiles' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(23,53): error TS2307: Cannot find module '../../lib/providers/gemini-models' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(42,8): error TS2307: Cannot find module './helpers' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(43,29): error TS2307: Cannot find module './ResultField' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(44,28): error TS2307: Cannot find module './ThumbStrip' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(45,45): error TS2307: Cannot find module './ToolIcons' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(46,66): error TS2307: Cannot find module './useMetadataQueue' or its corresponding type declarations.
+MetadataWorkspace.backup.tsx(532,26): error TS7006: Parameter 'key' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(564,16): error TS7006: Parameter 'previous' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(574,16): error TS7006: Parameter 'previous' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(649,38): error TS7006: Parameter 'key' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(730,41): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(849,41): error TS7006: Parameter 'option' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(866,45): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(1127,50): error TS7006: Parameter 'warning' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(1165,39): error TS7006: Parameter 'value' implicitly has an 'any' type.
+MetadataWorkspace.backup.tsx(1166,36): error TS7006: Parameter 'previous' implicitly has an 'any' type.
+node.exe : Failed to type check.
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Failed to type check.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+
+RESULT: build FAIL (exit code 1)
+
+Report saved to recovery-report.txt. Do not commit .recovery\ or recovery-report.txt.
