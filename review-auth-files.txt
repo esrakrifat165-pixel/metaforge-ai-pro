@@ -1,0 +1,1158 @@
+
+
+===== FILE: src\lib\server\keyStore.ts =====
+import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scryptSync } from "node:crypto";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { MAX_KEYS_PER_PROVIDER, PROVIDERS, type ProviderId } from "../providers/catalog";
+import type { LastResult, PublicKey, StorageState } from "../keys/shared";
+import { getSupabaseEnv } from "../supabase/env";
+
+// SERVER ONLY. Never import this file from a client component.
+//
+// Keys are encrypted with AES-256-GCM (secret: KEY_ENCRYPTION_SECRET) and stored in the
+// Supabase table public.api_keys. The table has row-level security and no policies, so
+// only the server, using SUPABASE_SERVICE_ROLE_KEY, can read or write it.
+// Callers must check admin rights before using listKeys/addKey/setEnabled/removeKey.
+
+type EncryptedSecret = { iv: string; tag: string; data: string };
+
+type PublicRow = {
+  id: string;
+  provider: ProviderId;
+  label: string;
+  last4: string;
+  enabled: boolean;
+  created_at: string;
+  last_result: LastResult;
+  last_used_at: string | null;
+};
+
+type SecretRow = PublicRow & { secret: EncryptedSecret };
+
+export type KeyResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; code: string; message: string; status: number };
+
+export type Candidate = { id: string; label: string; apiKey: string };
+
+export type CandidateResult =
+  | { ok: true; source: "store" | "env"; candidates: Candidate[] }
+  | { ok: false; code: "no_enabled_key" | "not_configured" | "key_store_error"; message: string };
+
+export class KeyStoreError extends Error {}
+
+const TABLE = "api_keys";
+const PUBLIC_COLUMNS = "id,provider,label,last4,enabled,created_at,last_result,last_used_at";
+const ENV_NAMES: Partial<Record<ProviderId, string[]>> = {
+  gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+};
+const RECENT_FAILURE_MS = 2 * 60 * 1000;
+
+/* ---------- Guards ---------- */
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isEncrypted(value: unknown): value is EncryptedSecret {
+  return (
+    isRecord(value) &&
+    typeof value.iv === "string" &&
+    typeof value.tag === "string" &&
+    typeof value.data === "string"
+  );
+}
+
+function isLastResult(value: unknown): value is LastResult {
+  return value === null || value === "ok" || value === "rejected" || value === "rate_limited";
+}
+
+function isPublicRow(value: unknown): value is PublicRow {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.provider === "string" &&
+    PROVIDERS.some((provider) => provider.id === value.provider) &&
+    typeof value.label === "string" &&
+    typeof value.last4 === "string" &&
+    typeof value.enabled === "boolean" &&
+    typeof value.created_at === "string" &&
+    isLastResult(value.last_result) &&
+    (value.last_used_at === null || typeof value.last_used_at === "string")
+  );
+}
+
+
+function isSecretRow(value: unknown): value is SecretRow {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const secretField = value.secret;
+
+  return isEncrypted(secretField) && isPublicRow(value);
+}
+
+/* ---------- Configuration ---------- */
+
+function getSecret(): string | null {
+  const value = (process.env.KEY_ENCRYPTION_SECRET ?? "").trim();
+  return value.length >= 32 ? value : null;
+}
+
+function getServiceKey(): string | null {
+  const value = (
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    process.env.SUPABASE_SECRET_KEY ??
+    ""
+  ).trim();
+  return value.length > 0 ? value : null;
+}
+
+export function getStorageState(): StorageState {
+  const missing: string[] = [];
+  if (!getSupabaseEnv()) {
+    missing.push("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+  }
+  if (!getServiceKey()) {
+    missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  }
+  if (!getSecret()) {
+    missing.push("KEY_ENCRYPTION_SECRET (at least 32 characters)");
+  }
+  if (missing.length > 0) {
+    return {
+      state: "missing_secret",
+      message: `Key storage is not configured. Missing: ${missing.join(", ")}. Add them to .env.local (local) or to Vercel Environment Variables (production), then restart or redeploy.`,
+    };
+  }
+  return {
+    state: "ready",
+    message:
+      "Keys are encrypted on the server and stored in your Supabase database. They are never sent back to the browser.",
+  };
+}
+
+let cachedClient: SupabaseClient | null = null;
+
+function db(): SupabaseClient {
+  const env = getSupabaseEnv();
+  const serviceKey = getServiceKey();
+  if (!env || !serviceKey) {
+    throw new KeyStoreError("Key storage is not configured.");
+  }
+  if (!cachedClient) {
+    cachedClient = createClient(env.url, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return cachedClient;
+}
+
+/* ---------- Encryption ---------- */
+
+let keyCache: { secret: string; key: Buffer } | null = null;
+
+function getCryptoKey(): Buffer | null {
+  const secret = getSecret();
+  if (!secret) {
+    return null;
+  }
+  if (keyCache && keyCache.secret === secret) {
+    return keyCache.key;
+  }
+  const key = scryptSync(secret, "metaforge-api-keys-v1", 32);
+  keyCache = { secret, key };
+  return key;
+}
+
+function encrypt(plain: string, aad: string, key: Buffer): EncryptedSecret {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  cipher.setAAD(Buffer.from(aad, "utf8"));
+  const data = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  return {
+    iv: iv.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64"),
+    data: data.toString("base64"),
+  };
+}
+
+function decrypt(secret: EncryptedSecret, aad: string, key: Buffer): string | null {
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(secret.iv, "base64"));
+    decipher.setAAD(Buffer.from(aad, "utf8"));
+    decipher.setAuthTag(Buffer.from(secret.tag, "base64"));
+    return Buffer.concat([
+      decipher.update(Buffer.from(secret.data, "base64")),
+      decipher.final(),
+    ]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+/* ---------- Helpers ---------- */
+
+function toPublic(row: PublicRow): PublicKey {
+  return {
+    id: row.id,
+    provider: row.provider,
+    label: row.label,
+    masked: "\u2022".repeat(12) + row.last4,
+    enabled: row.enabled,
+    createdAt: row.created_at,
+    lastResult: row.last_result,
+    lastUsedAt: row.last_used_at,
+  };
+}
+
+function notReady(): { ok: false; code: string; message: string; status: number } {
+  return { ok: false, code: "storage_unavailable", message: getStorageState().message, status: 503 };
+}
+
+async function fetchRows(provider: ProviderId): Promise<SecretRow[]> {
+  const { data, error } = await db()
+    .from(TABLE)
+    .select(`${PUBLIC_COLUMNS},secret`)
+    .eq("provider", provider);
+  const rows: unknown = data;
+  if (error || !Array.isArray(rows) || !rows.every(isSecretRow)) {
+    throw new KeyStoreError("The saved keys could not be read.");
+  }
+  return rows;
+}
+
+/* ---------- Public operations ---------- */
+
+export async function listKeys(): Promise<PublicKey[]> {
+  if (getStorageState().state !== "ready") {
+    return [];
+  }
+  const { data, error } = await db()
+    .from(TABLE)
+    .select(PUBLIC_COLUMNS)
+    .order("created_at", { ascending: true });
+  const rows: unknown = data;
+  if (error || !Array.isArray(rows) || !rows.every(isPublicRow)) {
+    throw new KeyStoreError("The saved keys could not be read.");
+  }
+  return rows.map(toPublic);
+}
+
+export async function addKey(input: {
+  provider: ProviderId;
+  label: string;
+  apiKey: string;
+}): Promise<KeyResult<PublicKey>> {
+  if (getStorageState().state !== "ready") {
+    return notReady();
+  }
+  const cryptoKey = getCryptoKey();
+  if (!cryptoKey) {
+    return notReady();
+  }
+
+  const sameProvider = await fetchRows(input.provider);
+
+  if (sameProvider.length >= MAX_KEYS_PER_PROVIDER) {
+    return {
+      ok: false,
+      code: "limit_reached",
+      status: 409,
+      message: `You already have ${MAX_KEYS_PER_PROVIDER} keys for this provider. Remove one first.`,
+    };
+  }
+  if (sameProvider.some((row) => row.label.toLowerCase() === input.label.toLowerCase())) {
+    return {
+      ok: false,
+      code: "duplicate_label",
+      status: 409,
+      message: "A key with this label already exists for this provider. Choose a different label.",
+    };
+  }
+  for (const existing of sameProvider) {
+    if (decrypt(existing.secret, existing.id, cryptoKey) === input.apiKey) {
+      return {
+        ok: false,
+        code: "duplicate_key",
+        status: 409,
+        message: `This key is already saved as "${existing.label}".`,
+      };
+    }
+  }
+
+  const id = randomUUID();
+  const { data, error } = await db()
+    .from(TABLE)
+    .insert({
+      id,
+      provider: input.provider,
+      label: input.label,
+      last4: input.apiKey.slice(-4),
+      enabled: true,
+      secret: encrypt(input.apiKey, id, cryptoKey),
+    })
+    .select(PUBLIC_COLUMNS)
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      return {
+        ok: false,
+        code: "duplicate_label",
+        status: 409,
+        message: "A key with this label already exists for this provider. Choose a different label.",
+      };
+    }
+    if (error.message.includes("KEY_LIMIT")) {
+      return {
+        ok: false,
+        code: "limit_reached",
+        status: 409,
+        message: `You already have ${MAX_KEYS_PER_PROVIDER} keys for this provider. Remove one first.`,
+      };
+    }
+    throw new KeyStoreError("The key could not be saved.");
+  }
+
+  const row: unknown = data;
+  if (!isPublicRow(row)) {
+    throw new KeyStoreError("The key was saved but the answer was unexpected.");
+  }
+  return { ok: true, value: toPublic(row) };
+}
+
+export async function setEnabled(id: string, enabled: boolean): Promise<KeyResult<PublicKey>> {
+  if (getStorageState().state !== "ready") {
+    return notReady();
+  }
+  const { data, error } = await db()
+    .from(TABLE)
+    .update({ enabled })
+    .eq("id", id)
+    .select(PUBLIC_COLUMNS)
+    .maybeSingle();
+  if (error) {
+    throw new KeyStoreError("The key could not be updated.");
+  }
+  const row: unknown = data;
+  if (row === null || row === undefined) {
+    return { ok: false, code: "not_found", status: 404, message: "That key no longer exists." };
+  }
+  if (!isPublicRow(row)) {
+    throw new KeyStoreError("The update answer was unexpected.");
+  }
+  return { ok: true, value: toPublic(row) };
+}
+
+export async function removeKey(id: string): Promise<KeyResult<true>> {
+  if (getStorageState().state !== "ready") {
+    return notReady();
+  }
+  const { data, error } = await db().from(TABLE).delete().eq("id", id).select("id");
+  if (error) {
+    throw new KeyStoreError("The key could not be removed.");
+  }
+  if (!Array.isArray(data) || data.length === 0) {
+    return { ok: false, code: "not_found", status: 404, message: "That key no longer exists." };
+  }
+  return { ok: true, value: true };
+}
+
+/** Records what really happened the last time a stored key was used. */
+export async function recordKeyResult(
+  id: string,
+  result: Exclude<LastResult, null>,
+): Promise<void> {
+  if (!id || getStorageState().state !== "ready") {
+    return;
+  }
+  try {
+    const { error } = await db()
+      .from(TABLE)
+      .update({ last_result: result, last_used_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) {
+      console.error("[key-store] could not record the result of a key");
+    }
+  } catch {
+    console.error("[key-store] could not record the result of a key");
+  }
+}
+
+/* ---------- Choosing keys for an AI request ---------- */
+
+function failureRank(row: SecretRow): number {
+  if (row.last_result === "rejected") {
+    return 2;
+  }
+  if (
+    row.last_result === "rate_limited" &&
+    row.last_used_at !== null &&
+    Date.now() - Date.parse(row.last_used_at) < RECENT_FAILURE_MS
+  ) {
+    return 1;
+  }
+  return 0;
+}
+
+function readEnvCandidates(provider: ProviderId): Candidate[] {
+  for (const name of ENV_NAMES[provider] ?? []) {
+    const value = (process.env[name] ?? "").trim();
+    if (value) {
+      return [{ id: "", label: `${name} (environment)`, apiKey: value }];
+    }
+  }
+  return [];
+}
+
+/**
+ * Keys the server may use for this provider, in the order to try them.
+ * - If any keys are saved for the provider, only ENABLED saved keys are used.
+ *   If all are disabled, nothing is used (the environment key is NOT a back door).
+ * - If none are saved, the environment key is used when it exists (Gemini only for now).
+ */
+export async function getCandidates(provider: ProviderId): Promise<CandidateResult> {
+  const providerName = PROVIDERS.find((entry) => entry.id === provider)?.name ?? provider;
+
+  if (getStorageState().state === "ready") {
+    let stored: SecretRow[];
+    try {
+      stored = await fetchRows(provider);
+    } catch {
+      return {
+        ok: false,
+        code: "key_store_error",
+        message:
+          "The saved keys could not be read. Check that the api_keys SQL was run and that SUPABASE_SERVICE_ROLE_KEY is correct.",
+      };
+    }
+
+    if (stored.length > 0) {
+      const enabled = stored.filter((row) => row.enabled);
+      if (enabled.length === 0) {
+        return {
+          ok: false,
+          code: "no_enabled_key",
+          message: `All saved ${providerName} keys are disabled. Enable one in the API Key Manager.`,
+        };
+      }
+
+      const cryptoKey = getCryptoKey();
+      if (!cryptoKey) {
+        return {
+          ok: false,
+          code: "key_store_error",
+          message: "KEY_ENCRYPTION_SECRET is missing on the server.",
+        };
+      }
+
+      const ordered = [...enabled].sort((a, b) => {
+        const rank = failureRank(a) - failureRank(b);
+        return rank !== 0 ? rank : Date.parse(a.created_at) - Date.parse(b.created_at);
+      });
+
+      const candidates: Candidate[] = [];
+      for (const row of ordered) {
+        const apiKey = decrypt(row.secret, row.id, cryptoKey);
+        if (apiKey) {
+          candidates.push({ id: row.id, label: row.label, apiKey });
+        }
+      }
+
+      if (candidates.length === 0) {
+        return {
+          ok: false,
+          code: "key_store_error",
+          message:
+            "The saved keys could not be decrypted. KEY_ENCRYPTION_SECRET may have changed. Remove the keys and add them again.",
+        };
+      }
+      return { ok: true, source: "store", candidates };
+    }
+  }
+
+  const fromEnv = readEnvCandidates(provider);
+  if (fromEnv.length > 0) {
+    return { ok: true, source: "env", candidates: fromEnv };
+  }
+
+  return {
+    ok: false,
+    code: "not_configured",
+    message: `No ${providerName} API key is available. Add one in the API Key Manager, or set it as an environment variable.`,
+  };
+}
+
+
+===== FILE: src\lib\auth\guards.ts =====
+// Small helpers for sign-in rules. The email list is server-side only.
+
+export function getAllowedEmails(): string[] {
+  return (process.env.ALLOWED_EMAILS ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => email.length > 0);
+}
+
+export function isEmailAllowed(email: string | null | undefined): boolean {
+  if (!email) {
+    return false;
+  }
+  return getAllowedEmails().includes(email.trim().toLowerCase());
+}
+
+export function safeNextPath(value: string | null | undefined): string {
+  if (
+    typeof value === "string" &&
+    value.startsWith("/") &&
+    !value.startsWith("//") &&
+    !value.includes("\\") &&
+    !value.startsWith("/login") &&
+    !value.startsWith("/auth")
+  ) {
+    return value;
+  }
+  return "/dashboard";
+}
+
+
+===== FILE: src\lib\auth\session.ts =====
+import { createClient } from "../supabase/server";
+import { getSupabaseEnv } from "../supabase/env";
+import { isEmailAllowed } from "./guards";
+
+// SERVER ONLY. Decides who is signed in and whether they are an admin.
+// The role comes from public.profiles, which the browser cannot change.
+
+export type AccessResult =
+  | {
+      ok: true;
+      userId: string;
+      email: string;
+      fullName: string | null;
+      role: "user" | "admin";
+    }
+  | { ok: false; status: 401 | 403 | 503; code: string; message: string };
+
+export async function getAccess(): Promise<AccessResult> {
+  if (!getSupabaseEnv()) {
+    return {
+      ok: false,
+      status: 503,
+      code: "auth_not_configured",
+      message: "Sign-in is not configured on the server.",
+    };
+  }
+
+  try {
+    const supabase = await createClient();
+
+    // getUser() asks Supabase to confirm the session. Cookies alone are never trusted.
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { ok: false, status: 401, code: "unauthenticated", message: "Please sign in." };
+    }
+    if (!user.email_confirmed_at || !isEmailAllowed(user.email)) {
+      return {
+        ok: false,
+        status: 403,
+        code: "not_allowed",
+        message: "This account is not allowed to use the app.",
+      };
+    }
+
+    // Read the role and the display name. If the name column cannot be read,
+    // fall back to the role alone so sign-in keeps working.
+    const full = await supabase
+      .from("profiles")
+      .select("role, full_name")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    let row: unknown = full.data;
+    let failed = full.error !== null;
+
+    if (failed) {
+      const basic = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+      row = basic.data;
+      failed = basic.error !== null;
+    }
+
+    if (failed) {
+      return {
+        ok: false,
+        status: 503,
+        code: "profile_unavailable",
+        message: "Your profile could not be read. Check that the profiles SQL was run in Supabase.",
+      };
+    }
+
+    const record: Record<string, unknown> =
+      typeof row === "object" && row !== null ? (row as Record<string, unknown>) : {};
+    const rawName = typeof record.full_name === "string" ? record.full_name.trim() : "";
+
+    return {
+      ok: true,
+      userId: user.id,
+      email: user.email ?? "",
+      fullName: rawName.length > 0 ? rawName.slice(0, 80) : null,
+      role: record.role === "admin" ? "admin" : "user",
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 503,
+      code: "auth_unavailable",
+      message: "Could not check your sign-in. Try again.",
+    };
+  }
+}
+
+/** Returns an error Response if the caller is not a signed-in admin, or null if they are. */
+export async function adminApiGuard(): Promise<Response | null> {
+  const access = await getAccess();
+
+  if (!access.ok) {
+    return Response.json(
+      { success: false, code: access.code, message: access.message },
+      { status: access.status, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  if (access.role !== "admin") {
+    return Response.json(
+      { success: false, code: "forbidden", message: "Only an admin can do this." },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  return null;
+}
+
+
+===== FILE: src\lib\supabase\env.ts =====
+
+export type SupabaseEnv = {
+  url: string;
+  publishableKey: string;
+};
+
+export function getSupabaseEnv(): SupabaseEnv | null {
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
+
+  const publishableKey = (
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+    ""
+  ).trim();
+
+  if (!/^https?:\/\/.+/.test(url) || !publishableKey) {
+    return null;
+  }
+
+  return { url, publishableKey };
+}
+
+
+===== FILE: src\lib\supabase\server.ts =====
+
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+import { getSupabaseEnv } from "./env";
+
+// For Server Components, Route Handlers and Server Actions.
+export async function createClient() {
+  const env = getSupabaseEnv();
+
+  if (!env) {
+    throw new Error("Supabase is not configured.");
+  }
+
+  const cookieStore = await cookies();
+
+  return createServerClient(env.url, env.publishableKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet) {
+        try {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        } catch {
+          // Server Components cannot set cookies.
+          // The proxy refreshes the session instead.
+        }
+      },
+    },
+  });
+}
+
+
+===== FILE: src\lib\supabase\proxy.ts =====
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
+import { isEmailAllowed } from "../auth/guards";
+import { getSupabaseEnv } from "./env";
+
+// Runs before every page and API request (see src/proxy.ts).
+// - Keeps the sign-in session fresh.
+// - Sends signed-out visitors to /login, and answers API calls with 401.
+// - Blocks signed-in accounts that are not on the ALLOWED_EMAILS list.
+// If Supabase is not configured at all, everything passes through unchanged.
+
+const PUBLIC_PREFIXES = ["/login", "/auth"];
+
+function isPublic(path: string): boolean {
+  return PUBLIC_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+}
+
+function copyCookies(from: NextResponse, to: NextResponse): void {
+  from.cookies.getAll().forEach((cookie) => {
+    to.cookies.set(cookie);
+  });
+}
+
+function deny(
+  request: NextRequest,
+  response: NextResponse,
+  reason: "login" | "not_allowed",
+): NextResponse {
+  const path = request.nextUrl.pathname;
+  let result: NextResponse;
+
+  if (path.startsWith("/api/")) {
+    result =
+      reason === "login"
+        ? NextResponse.json(
+            { success: false, code: "unauthenticated", message: "Please sign in." },
+            { status: 401 },
+          )
+        : NextResponse.json(
+            { success: false, code: "not_allowed", message: "This account is not allowed to use the app." },
+            { status: 403 },
+          );
+  } else {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.search = "";
+    if (reason === "login") {
+      url.searchParams.set("next", `${path}${request.nextUrl.search}`);
+    } else {
+      url.searchParams.set("error", "not_allowed");
+    }
+    result = NextResponse.redirect(url);
+  }
+
+  copyCookies(response, result);
+  result.headers.set("Cache-Control", "no-store");
+  return result;
+}
+
+export async function updateSession(request: NextRequest): Promise<NextResponse> {
+  const env = getSupabaseEnv();
+  if (!env) {
+    return NextResponse.next({ request });
+  }
+
+  let response = NextResponse.next({ request });
+
+  const supabase = createServerClient(env.url, env.publishableKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet, headers?: Record<string, string>) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        response = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) =>
+          response.cookies.set(name, value, options),
+        );
+        if (headers) {
+          Object.entries(headers).forEach(([key, value]) => response.headers.set(key, value));
+        }
+      },
+    },
+  });
+
+  // Do not add code between createServerClient and getUser().
+  // getUser() asks Supabase to confirm the session. The cookie alone is never trusted.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const path = request.nextUrl.pathname;
+
+  if (!user) {
+    return isPublic(path) ? response : deny(request, response, "login");
+  }
+
+  const allowed = Boolean(user.email_confirmed_at) && isEmailAllowed(user.email);
+  if (!allowed) {
+    return isPublic(path) ? response : deny(request, response, "not_allowed");
+  }
+
+  if (path === "/login") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
+    url.search = "";
+    const redirect = NextResponse.redirect(url);
+    copyCookies(response, redirect);
+    return redirect;
+  }
+
+  return response;
+}
+
+
+===== FILE: src\proxy.ts =====
+import type { NextRequest } from "next/server";
+import { updateSession } from "./lib/supabase/proxy";
+
+export async function proxy(request: NextRequest) {
+  return updateSession(request);
+}
+
+export const config = {
+  // Skips Next.js internals and static image files (including the public logo).
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|brand/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+  ],
+};
+
+
+===== FILE: src\app\auth\google\route.ts =====
+import { NextResponse } from "next/server";
+import { getSupabaseEnv } from "../../../lib/supabase/env";
+import { createClient } from "../../../lib/supabase/server";
+
+export async function POST(request: Request): Promise<Response> {
+  const origin = new URL(request.url).origin;
+
+  if (!getSupabaseEnv()) {
+    return NextResponse.redirect(`${origin}/login?error=not_configured`, 303);
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: `${origin}/auth/callback`,
+      queryParams: { prompt: "select_account" },
+    },
+  });
+
+  if (error || !data.url) {
+    return NextResponse.redirect(`${origin}/login?error=oauth`, 303);
+  }
+  return NextResponse.redirect(data.url, 303);
+}
+
+
+===== FILE: src\app\auth\callback\route.ts =====
+import { NextResponse } from "next/server";
+import { createClient } from "../../../lib/supabase/server";
+
+export async function GET(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+
+  if (url.searchParams.get("error") || !code) {
+    return NextResponse.redirect(`${url.origin}/login?error=cancelled`);
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) {
+    return NextResponse.redirect(`${url.origin}/login?error=oauth`);
+  }
+  // Fixed destination, so there is no open redirect.
+  return NextResponse.redirect(`${url.origin}/dashboard`);
+}
+
+
+===== FILE: src\app\auth\signout\route.ts =====
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
+import { getSupabaseEnv } from "../../../lib/supabase/env";
+
+// Signs the person out. The redirect response is created first and the cookie
+// removals are written onto it directly, so the browser always receives them.
+
+export async function POST(request: NextRequest): Promise<Response> {
+  const origin = new URL(request.url).origin;
+  const response = NextResponse.redirect(`${origin}/login`, 303);
+  response.headers.set("Cache-Control", "no-store");
+
+  const env = getSupabaseEnv();
+  if (env) {
+    const supabase = createServerClient(env.url, env.publishableKey, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
+        },
+      },
+    });
+
+    try {
+      // Revokes the session on Supabase and queues the cookie removal.
+      await supabase.auth.signOut();
+    } catch {
+      // The safety net below still clears the browser's cookies.
+    }
+  }
+
+  // Safety net: expire every Supabase session cookie, including chunked ones.
+  for (const cookie of request.cookies.getAll()) {
+    if (cookie.name.startsWith("sb-")) {
+      response.cookies.set(cookie.name, "", { path: "/", maxAge: 0 });
+    }
+  }
+
+  return response;
+}
+
+
+===== FILE: src\app\(app)\layout.tsx =====
+import type { ReactNode } from "react";
+import { AppShell } from "../../components/AppShell";
+import { getAccess } from "../../lib/auth/session";
+
+export default async function AppLayout({ children }: { children: ReactNode }) {
+  const access = await getAccess();
+  const user = access.ok
+    ? { email: access.email, role: access.role, fullName: access.fullName }
+    : null;
+
+  return <AppShell user={user}>{children}</AppShell>;
+}
+
+
+===== FILE: src\components\AppShell.tsx =====
+"use client";
+
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Icon } from "./Icons";
+import { SearchBox } from "./SearchBox";
+import { Sidebar } from "./Sidebar";
+import { ThemeToggle } from "./ThemeToggle";
+
+const SIDEBAR_ID = "app-sidebar";
+const NAME_MAX = 18;
+
+export type ShellUser = {
+  email: string;
+  role: "user" | "admin";
+  fullName?: string | null;
+} | null;
+
+function shorten(text: string): string {
+  return text.length > NAME_MAX ? `${text.slice(0, NAME_MAX - 1)}\u2026` : text;
+}
+
+export function AppShell({ children, user }: { children: ReactNode; user: ShellUser }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [menuOpen]);
+
+  const fullName = user?.fullName?.trim() ?? "";
+  const displayName = user ? (fullName.length > 0 ? fullName : user.email.split("@")[0]) : "Guest";
+  const initial = (displayName.charAt(0) || "G").toUpperCase();
+  const subtitle = user ? (user.role === "admin" ? "Administrator" : "User") : "Not signed in";
+  const chipTitle = user
+    ? `${displayName} (${user.email}) - ${subtitle}`
+    : "Sign-in is not set up yet";
+
+  return (
+    <div className="app-shell">
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
+      <Sidebar
+        id={SIDEBAR_ID}
+        open={menuOpen}
+        isAdmin={user?.role === "admin"}
+        onNavigate={closeMenu}
+      />
+
+      {menuOpen ? (
+        <button
+          type="button"
+          className="scrim"
+          aria-label="Close navigation menu"
+          onClick={closeMenu}
+        />
+      ) : null}
+
+      <div className="app-main">
+        <header className="topbar">
+          <button
+            type="button"
+            className="icon-button menu-button"
+            aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-expanded={menuOpen}
+            aria-controls={SIDEBAR_ID}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <Icon name={menuOpen ? "close" : "menu"} />
+          </button>
+
+          <SearchBox />
+
+          <div className="topbar-actions">
+            <ThemeToggle />
+            <button
+              type="button"
+              className="icon-button"
+              disabled
+              aria-disabled="true"
+              aria-label="Notifications (not available yet)"
+              title="Notifications are not available yet"
+            >
+              <Icon name="bell" />
+            </button>
+            <div className="user-chip" title={chipTitle}>
+              <span className="user-avatar" aria-hidden="true">
+                {initial}
+              </span>
+              <span className="user-text">
+                <strong>{shorten(displayName)}</strong>
+                <small>{subtitle}</small>
+              </span>
+            </div>
+          </div>
+        </header>
+
+        <main id="main-content" tabIndex={-1}>
+          {children}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+
+===== FILE: src\components\Sidebar.tsx =====
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { BrandMark } from "./BrandMark";
+import { Icon } from "./Icons";
+import { getSupabaseEnv } from "../lib/supabase/env";
+import {
+  getVisibleNavItems,
+  isActivePath,
+  type NavItem,
+} from "../lib/navigation";
+
+type SidebarProps = {
+  id: string;
+  open: boolean;
+  isAdmin: boolean;
+  onNavigate: () => void;
+};
+
+type NavListProps = {
+  items: NavItem[];
+  pathname: string;
+  onNavigate: () => void;
+};
+
+function NavList({ items, pathname, onNavigate }: NavListProps) {
+  return (
+    <ul className="nav-list">
+      {items.map((item) => (
+        <li key={item.href}>
+          <Link
+            href={item.href}
+            className="nav-link"
+            aria-current={isActivePath(pathname, item.href) ? "page" : undefined}
+            onClick={onNavigate}
+          >
+            <Icon name={item.icon} />
+            <span>{item.label}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function Sidebar({ id, open, isAdmin, onNavigate }: SidebarProps) {
+  const pathname = usePathname();
+  const items = getVisibleNavItems(isAdmin);
+  const mainItems = items.filter((item) => item.placement === "main");
+  const bottomItems = items.filter((item) => item.placement === "bottom");
+  const signInEnabled = getSupabaseEnv() !== null;
+
+  return (
+    <aside id={id} className="sidebar" data-open={open ? "true" : "false"}>
+      <Link href="/dashboard" className="brand" onClick={onNavigate}>
+        <BrandMark size={46} />
+        <span className="brand-text">
+          <strong>METAFORGE</strong>
+          <strong className="brand-ai">AI PRO</strong>
+          <small>By FER</small>
+        </span>
+      </Link>
+
+      <nav aria-label="Main navigation" className="sidebar-nav">
+        <NavList items={mainItems} pathname={pathname} onNavigate={onNavigate} />
+        <hr className="sidebar-divider" />
+        <NavList items={bottomItems} pathname={pathname} onNavigate={onNavigate} />
+      </nav>
+
+      <div className="sidebar-footer">
+        {signInEnabled ? (
+          <form action="/auth/signout" method="post">
+            <button type="submit" className="nav-link">
+              <Icon name="logout" />
+              <span>Logout</span>
+            </button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            className="nav-link"
+            disabled
+            aria-disabled="true"
+            title="Sign-in is not set up yet"
+          >
+            <Icon name="logout" />
+            <span>Logout</span>
+            <span className="nav-soon">Not set up</span>
+          </button>
+        )}
+      </div>
+    </aside>
+  );
+}

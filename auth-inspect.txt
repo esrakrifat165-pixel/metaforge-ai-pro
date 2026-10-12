@@ -1,0 +1,565 @@
+﻿
+===== src\proxy.ts =====
+import type { NextRequest } from "next/server";
+import { updateSession } from "./lib/supabase/proxy";
+
+export async function proxy(request: NextRequest) {
+  return updateSession(request);
+}
+
+export const config = {
+  // Skips Next.js internals and static image files (including the public logo).
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|brand/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+  ],
+};
+
+===== src\lib\auth\session.ts =====
+import { createClient } from "../supabase/server";
+import { getSupabaseEnv } from "../supabase/env";
+import { isEmailAllowed } from "./guards";
+
+// SERVER ONLY. Decides who is signed in and whether they are an admin.
+// The role comes from public.profiles, which the browser cannot change.
+
+export type AccessResult =
+  | {
+      ok: true;
+      userId: string;
+      email: string;
+      fullName: string | null;
+      role: "user" | "admin";
+    }
+  | { ok: false; status: 401 | 403 | 503; code: string; message: string };
+
+export async function getAccess(): Promise<AccessResult> {
+  if (!getSupabaseEnv()) {
+    return {
+      ok: false,
+      status: 503,
+      code: "auth_not_configured",
+      message: "Sign-in is not configured on the server.",
+    };
+  }
+
+  try {
+    const supabase = await createClient();
+
+    // getUser() asks Supabase to confirm the session. Cookies alone are never trusted.
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { ok: false, status: 401, code: "unauthenticated", message: "Please sign in." };
+    }
+    if (!user.email_confirmed_at || !isEmailAllowed(user.email)) {
+      return {
+        ok: false,
+        status: 403,
+        code: "not_allowed",
+        message: "This account is not allowed to use the app.",
+      };
+    }
+
+    // Read the role and the display name. If the name column cannot be read,
+    // fall back to the role alone so sign-in keeps working.
+    const full = await supabase
+      .from("profiles")
+      .select("role, full_name")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    let row: unknown = full.data;
+    let failed = full.error !== null;
+
+    if (failed) {
+      const basic = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+      row = basic.data;
+      failed = basic.error !== null;
+    }
+
+    if (failed) {
+      return {
+        ok: false,
+        status: 503,
+        code: "profile_unavailable",
+        message: "Your profile could not be read. Check that the profiles SQL was run in Supabase.",
+      };
+    }
+
+    const record: Record<string, unknown> =
+      typeof row === "object" && row !== null ? (row as Record<string, unknown>) : {};
+    const rawName = typeof record.full_name === "string" ? record.full_name.trim() : "";
+
+    return {
+      ok: true,
+      userId: user.id,
+      email: user.email ?? "",
+      fullName: rawName.length > 0 ? rawName.slice(0, 80) : null,
+      role: record.role === "admin" ? "admin" : "user",
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 503,
+      code: "auth_unavailable",
+      message: "Could not check your sign-in. Try again.",
+    };
+  }
+}
+
+/** Returns an error Response if the caller is not a signed-in admin, or null if they are. */
+export async function adminApiGuard(): Promise<Response | null> {
+  const access = await getAccess();
+
+  if (!access.ok) {
+    return Response.json(
+      { success: false, code: access.code, message: access.message },
+      { status: access.status, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  if (access.role !== "admin") {
+    return Response.json(
+      { success: false, code: "forbidden", message: "Only an admin can do this." },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  return null;
+}
+
+===== src\lib\auth\guards.ts =====
+// Small helpers for sign-in rules. The email list is server-side only.
+
+export function getAllowedEmails(): string[] {
+  return (process.env.ALLOWED_EMAILS ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => email.length > 0);
+}
+
+export function isEmailAllowed(email: string | null | undefined): boolean {
+  if (!email) {
+    return false;
+  }
+  return getAllowedEmails().includes(email.trim().toLowerCase());
+}
+
+export function safeNextPath(value: string | null | undefined): string {
+  if (
+    typeof value === "string" &&
+    value.startsWith("/") &&
+    !value.startsWith("//") &&
+    !value.includes("\\") &&
+    !value.startsWith("/login") &&
+    !value.startsWith("/auth")
+  ) {
+    return value;
+  }
+  return "/dashboard";
+}
+
+===== src\lib\supabase\proxy.ts =====
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
+import { isEmailAllowed } from "../auth/guards";
+import { getSupabaseEnv } from "./env";
+
+// Runs before every page and API request (see src/proxy.ts).
+// - Keeps the sign-in session fresh.
+// - Sends signed-out visitors to /login, and answers API calls with 401.
+// - Blocks signed-in accounts that are not on the ALLOWED_EMAILS list.
+// If Supabase is not configured at all, everything passes through unchanged.
+
+const PUBLIC_PREFIXES = ["/login", "/auth"];
+
+function isPublic(path: string): boolean {
+  return PUBLIC_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+}
+
+function copyCookies(from: NextResponse, to: NextResponse): void {
+  from.cookies.getAll().forEach((cookie) => {
+    to.cookies.set(cookie);
+  });
+}
+
+function deny(
+  request: NextRequest,
+  response: NextResponse,
+  reason: "login" | "not_allowed",
+): NextResponse {
+  const path = request.nextUrl.pathname;
+  let result: NextResponse;
+
+  if (path.startsWith("/api/")) {
+    result =
+      reason === "login"
+        ? NextResponse.json(
+            { success: false, code: "unauthenticated", message: "Please sign in." },
+            { status: 401 },
+          )
+        : NextResponse.json(
+            { success: false, code: "not_allowed", message: "This account is not allowed to use the app." },
+            { status: 403 },
+          );
+  } else {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.search = "";
+    if (reason === "login") {
+      url.searchParams.set("next", `${path}${request.nextUrl.search}`);
+    } else {
+      url.searchParams.set("error", "not_allowed");
+    }
+    result = NextResponse.redirect(url);
+  }
+
+  copyCookies(response, result);
+  result.headers.set("Cache-Control", "no-store");
+  return result;
+}
+
+export async function updateSession(request: NextRequest): Promise<NextResponse> {
+  const env = getSupabaseEnv();
+  if (!env) {
+    return NextResponse.next({ request });
+  }
+
+  let response = NextResponse.next({ request });
+
+  const supabase = createServerClient(env.url, env.publishableKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet, headers?: Record<string, string>) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        response = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) =>
+          response.cookies.set(name, value, options),
+        );
+        if (headers) {
+          Object.entries(headers).forEach(([key, value]) => response.headers.set(key, value));
+        }
+      },
+    },
+  });
+
+  // Do not add code between createServerClient and getUser().
+  // getUser() asks Supabase to confirm the session. The cookie alone is never trusted.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const path = request.nextUrl.pathname;
+
+  if (!user) {
+    return isPublic(path) ? response : deny(request, response, "login");
+  }
+
+  const allowed = Boolean(user.email_confirmed_at) && isEmailAllowed(user.email);
+  if (!allowed) {
+    return isPublic(path) ? response : deny(request, response, "not_allowed");
+  }
+
+  if (path === "/login") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
+    url.search = "";
+    const redirect = NextResponse.redirect(url);
+    copyCookies(response, redirect);
+    return redirect;
+  }
+
+  return response;
+}
+
+===== src\app\auth\signout\route.ts =====
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
+import { getSupabaseEnv } from "../../../lib/supabase/env";
+
+// Signs the person out. The redirect response is created first and the cookie
+// removals are written onto it directly, so the browser always receives them.
+
+export async function POST(request: NextRequest): Promise<Response> {
+  const origin = new URL(request.url).origin;
+  const response = NextResponse.redirect(`${origin}/login`, 303);
+  response.headers.set("Cache-Control", "no-store");
+
+  const env = getSupabaseEnv();
+  if (env) {
+    const supabase = createServerClient(env.url, env.publishableKey, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
+        },
+      },
+    });
+
+    try {
+      // Revokes the session on Supabase and queues the cookie removal.
+      await supabase.auth.signOut();
+    } catch {
+      // The safety net below still clears the browser's cookies.
+    }
+  }
+
+  // Safety net: expire every Supabase session cookie, including chunked ones.
+  for (const cookie of request.cookies.getAll()) {
+    if (cookie.name.startsWith("sb-")) {
+      response.cookies.set(cookie.name, "", { path: "/", maxAge: 0 });
+    }
+  }
+
+  return response;
+}
+
+===== src\app\(app)\layout.tsx =====
+import type { ReactNode } from "react";
+import { AppShell } from "../../components/AppShell";
+import { getAccess } from "../../lib/auth/session";
+
+export default async function AppLayout({ children }: { children: ReactNode }) {
+  const access = await getAccess();
+  const user = access.ok
+    ? { email: access.email, role: access.role, fullName: access.fullName }
+    : null;
+
+  return <AppShell user={user}>{children}</AppShell>;
+}
+
+===== src\components\AppShell.tsx =====
+"use client";
+
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Icon } from "./Icons";
+import { SearchBox } from "./SearchBox";
+import { Sidebar } from "./Sidebar";
+import { ThemeToggle } from "./ThemeToggle";
+
+const SIDEBAR_ID = "app-sidebar";
+const NAME_MAX = 18;
+
+export type ShellUser = {
+  email: string;
+  role: "user" | "admin";
+  fullName?: string | null;
+} | null;
+
+function shorten(text: string): string {
+  return text.length > NAME_MAX ? `${text.slice(0, NAME_MAX - 1)}\u2026` : text;
+}
+
+export function AppShell({ children, user }: { children: ReactNode; user: ShellUser }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [menuOpen]);
+
+  const fullName = user?.fullName?.trim() ?? "";
+  const displayName = user ? (fullName.length > 0 ? fullName : user.email.split("@")[0]) : "Guest";
+  const initial = (displayName.charAt(0) || "G").toUpperCase();
+  const subtitle = user ? (user.role === "admin" ? "Administrator" : "User") : "Not signed in";
+  const chipTitle = user
+    ? `${displayName} (${user.email}) - ${subtitle}`
+    : "Sign-in is not set up yet";
+
+  return (
+    <div className="app-shell">
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
+      <Sidebar
+        id={SIDEBAR_ID}
+        open={menuOpen}
+        isAdmin={user?.role === "admin"}
+        onNavigate={closeMenu}
+      />
+
+      {menuOpen ? (
+        <button
+          type="button"
+          className="scrim"
+          aria-label="Close navigation menu"
+          onClick={closeMenu}
+        />
+      ) : null}
+
+      <div className="app-main">
+        <header className="topbar">
+          <button
+            type="button"
+            className="icon-button menu-button"
+            aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-expanded={menuOpen}
+            aria-controls={SIDEBAR_ID}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <Icon name={menuOpen ? "close" : "menu"} />
+          </button>
+
+          <SearchBox />
+
+          <div className="topbar-actions">
+            <ThemeToggle />
+            <button
+              type="button"
+              className="icon-button"
+              disabled
+              aria-disabled="true"
+              aria-label="Notifications (not available yet)"
+              title="Notifications are not available yet"
+            >
+              <Icon name="bell" />
+            </button>
+            <div className="user-chip" title={chipTitle}>
+              <span className="user-avatar" aria-hidden="true">
+                {initial}
+              </span>
+              <span className="user-text">
+                <strong>{shorten(displayName)}</strong>
+                <small>{subtitle}</small>
+              </span>
+            </div>
+          </div>
+        </header>
+
+        <main id="main-content" tabIndex={-1}>
+          {children}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+===== src\app\auth\callback\route.ts =====
+import { NextResponse } from "next/server";
+import { createClient } from "../../../lib/supabase/server";
+
+export async function GET(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+
+  if (url.searchParams.get("error") || !code) {
+    return NextResponse.redirect(`${url.origin}/login?error=cancelled`);
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) {
+    return NextResponse.redirect(`${url.origin}/login?error=oauth`);
+  }
+  // Fixed destination, so there is no open redirect.
+  return NextResponse.redirect(`${url.origin}/dashboard`);
+}
+
+===== src\app\login\page.tsx =====
+import type { Metadata } from "next";
+import { Suspense } from "react";
+import { BrandMark } from "../../components/BrandMark";
+import { getSupabaseEnv } from "../../lib/supabase/env";
+
+export const metadata: Metadata = { title: "Sign in" };
+
+const MESSAGES: Record<string, string> = {
+  not_configured: "Sign-in is not configured on this server.",
+  cancelled: "Sign-in was cancelled or did not finish. Please try again.",
+  oauth: "Google sign-in failed. Please try again.",
+};
+
+async function LoginError({ params }: { params: Promise<{ error?: string }> }) {
+  const { error } = await params;
+  const text = error ? MESSAGES[error] : undefined;
+  return text ? <p role="alert">{text}</p> : null;
+}
+
+export default function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const configured = getSupabaseEnv() !== null;
+
+  return (
+    <div className="page">
+      <div
+        className="card"
+        style={{
+          maxWidth: 420,
+          margin: "10vh auto",
+          display: "grid",
+          gap: 16,
+          justifyItems: "center",
+          textAlign: "center",
+        }}
+      >
+        <BrandMark size={56} />
+        <h1>METAFORGE AI PRO</h1>
+        <p>Sign in to save your history and use your account.</p>
+        <Suspense fallback={null}>
+          <LoginError params={searchParams} />
+        </Suspense>
+        {configured ? (
+          <form action="/auth/google" method="post">
+            <button type="submit" className="button">
+              Continue with Google
+            </button>
+          </form>
+        ) : (
+          <p>Sign-in is not set up. The Supabase environment variables are missing.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+===== src\app\auth\google\route.ts =====
+import { NextResponse } from "next/server";
+import { getSupabaseEnv } from "../../../lib/supabase/env";
+import { createClient } from "../../../lib/supabase/server";
+
+export async function POST(request: Request): Promise<Response> {
+  const origin = new URL(request.url).origin;
+
+  if (!getSupabaseEnv()) {
+    return NextResponse.redirect(`${origin}/login?error=not_configured`, 303);
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: `${origin}/auth/callback`,
+      queryParams: { prompt: "select_account" },
+    },
+  });
+
+  if (error || !data.url) {
+    return NextResponse.redirect(`${origin}/login?error=oauth`, 303);
+  }
+  return NextResponse.redirect(data.url, 303);
+}

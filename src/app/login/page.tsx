@@ -9,6 +9,8 @@ const MESSAGES: Record<string, string> = {
   not_configured: "Sign-in is not configured on this server.",
   cancelled: "Sign-in was cancelled or did not finish. Please try again.",
   oauth: "Google sign-in failed. Please try again.",
+  not_allowed:
+    "This Google account is not approved to use METAFORGE AI PRO yet. Sign in with an approved account or contact the administrator.",
 };
 
 async function LoginError({ params }: { params: Promise<{ error?: string }> }) {
