@@ -1,10 +1,10 @@
 import { GeminiError, generateRawMetadata, type GeminiErrorCode } from "./gemini";
 import { getCandidates, recordKeyResult } from "./keyStore";
 
-// SERVER ONLY. Picks the signed-in user's enabled saved keys (or the environment key for
-// a verified admin), calls Gemini, and tries at most MAX_KEY_ATTEMPTS keys when a key is
-// rejected or rate-limited.
-// Disabled keys are never returned by getCandidates(), so they are never used.
+// SERVER ONLY. Picks the CALLING USER's enabled saved keys (or, for the verified admin
+// only, the environment key), calls Gemini, and tries at most MAX_KEY_ATTEMPTS keys when
+// a key is rejected or rate-limited.
+// `userId` must come from the server-verified session, never from the request body.
 
 const MAX_KEY_ATTEMPTS = 3;
 
@@ -20,7 +20,6 @@ const STATUS_BY_CODE: Record<GeminiErrorCode, number> = {
 };
 
 export type GeminiRunInput = {
-  /** Server-verified user ID from the session. Never from the browser. */
   userId: string;
   model: string;
   mimeType: string;
@@ -46,7 +45,8 @@ function failure(status: number, code: string, message: string, retryable: boole
 }
 
 export async function runGeminiWithKeys(input: GeminiRunInput): Promise<GeminiRunResult> {
-  const resolved = await getCandidates(input.userId, "gemini");
+  // Provider first, then the verified user id (the order used on the multi-provider branch).
+  const resolved = await getCandidates("gemini", input.userId);
   if (!resolved.ok) {
     if (resolved.code === "key_store_error") {
       return failure(500, "key_store_error", resolved.message, false);

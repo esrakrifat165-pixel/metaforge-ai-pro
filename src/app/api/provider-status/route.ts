@@ -10,8 +10,7 @@ export async function GET(): Promise<Response> {
       { status: 401, headers: { "Cache-Control": "no-store" } },
     );
   }
-
-  const result = await getCandidates(who.userId, "gemini");
+  const result = await getCandidates("gemini", who.userId);
   // "All keys disabled" still counts as configured here, so the Metadata Generator lets the
   // request through and the server answers with the precise reason.
   const configured = result.ok || result.code === "no_enabled_key";
