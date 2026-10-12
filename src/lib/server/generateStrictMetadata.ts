@@ -7,6 +7,7 @@ import {
 import { runGeminiWithKeys } from "./runGemini";
 
 // SERVER ONLY. At most MAX_ATTEMPTS model calls per image. Never pads or fakes keywords.
+// `userId` must be the server-verified id from getAccess(). It decides whose saved keys are used.
 
 const MAX_ATTEMPTS = 3;
 
@@ -22,6 +23,7 @@ export type StrictOutcome =
     };
 
 export async function generateStrictMetadata(input: {
+  userId: string;
   model: string;
   mimeType: string;
   base64: string;
@@ -31,6 +33,7 @@ export async function generateStrictMetadata(input: {
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     const run = await runGeminiWithKeys({
+      userId: input.userId,
       model: input.model,
       mimeType: input.mimeType,
       base64: input.base64,

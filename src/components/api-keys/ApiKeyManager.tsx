@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -7,9 +8,14 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+
 import { EmptyState } from "../EmptyState";
 import { Icon } from "../Icons";
-import { MAX_KEYS_PER_PROVIDER, PROVIDERS, type ProviderId } from "../../lib/providers/catalog";
+import {
+  MAX_KEYS_PER_PROVIDER,
+  PROVIDERS,
+  type ProviderId,
+} from "../../lib/providers/catalog";
 import {
   validateApiKey,
   validateLabel,
@@ -18,10 +24,17 @@ import {
   type StorageState,
 } from "../../lib/keys/shared";
 
-type Message = { kind: "success" | "error"; text: string } | null;
+type Message = {
+  kind: "success" | "error";
+  text: string;
+} | null;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
 }
 
 function isPublicKey(value: unknown): value is PublicKey {
@@ -34,12 +47,31 @@ function isPublicKey(value: unknown): value is PublicKey {
     typeof value.masked === "string" &&
     typeof value.enabled === "boolean" &&
     typeof value.createdAt === "string" &&
-    (value.lastUsedAt === null || typeof value.lastUsedAt === "string") &&
+    (value.lastUsedAt === null ||
+      typeof value.lastUsedAt === "string") &&
     (value.lastResult === null ||
       value.lastResult === "ok" ||
       value.lastResult === "rejected" ||
       value.lastResult === "rate_limited")
   );
+}
+
+function toPublicKey(value: unknown): PublicKey | null {
+  if (!isPublicKey(value)) {
+    return null;
+  }
+
+  // Only allow known, display-safe fields into client state.
+  return {
+    id: value.id,
+    provider: value.provider as ProviderId,
+    label: value.label,
+    masked: value.masked,
+    enabled: value.enabled,
+    createdAt: value.createdAt,
+    lastUsedAt: value.lastUsedAt as string | null,
+    lastResult: value.lastResult as LastResult | null,
+  };
 }
 
 function isStorageState(value: unknown): value is StorageState {
@@ -53,27 +85,58 @@ function isStorageState(value: unknown): value is StorageState {
   );
 }
 
-function readList(payload: unknown): { storage: StorageState; keys: PublicKey[] } | null {
-  if (!isRecord(payload) || payload.success !== true || !isStorageState(payload.storage)) {
+function readList(
+  payload: unknown
+): { storage: StorageState; keys: PublicKey[] } | null {
+  if (
+    !isRecord(payload) ||
+    payload.success !== true ||
+    !isStorageState(payload.storage) ||
+    !Array.isArray(payload.keys)
+  ) {
     return null;
   }
-  if (!Array.isArray(payload.keys) || !payload.keys.every(isPublicKey)) {
-    return null;
+
+  const keys: PublicKey[] = [];
+
+  for (const item of payload.keys) {
+    const key = toPublicKey(item);
+
+    if (!key) {
+      return null;
+    }
+
+    keys.push(key);
   }
-  return { storage: payload.storage, keys: payload.keys };
+
+  return {
+    storage: {
+      state: payload.storage.state,
+      message: payload.storage.message,
+    } as StorageState,
+    keys,
+  };
 }
 
 function readKey(payload: unknown): PublicKey | null {
-  return isRecord(payload) && payload.success === true && isPublicKey(payload.key)
-    ? payload.key
-    : null;
+  if (!isRecord(payload) || payload.success !== true) {
+    return null;
+  }
+
+  return toPublicKey(payload.key);
 }
 
-function readMessage(payload: unknown, fallback: string): string {
-  return isRecord(payload) && typeof payload.message === "string" ? payload.message : fallback;
+function readMessage(
+  payload: unknown,
+  fallback: string
+): string {
+  return isRecord(payload) &&
+    typeof payload.message === "string"
+    ? payload.message
+    : fallback;
 }
 
-function resultText(result: LastResult): string {
+function resultText(result: LastResult | null): string {
   switch (result) {
     case "ok":
       return "Last request worked";
@@ -87,7 +150,9 @@ function resultText(result: LastResult): string {
 }
 
 export function ApiKeyManager() {
-  const [selectedId, setSelectedId] = useState<ProviderId>(PROVIDERS[0].id);
+  const [selectedId, setSelectedId] = useState<ProviderId>(
+    PROVIDERS[0].id
+  );
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [storage, setStorage] = useState<StorageState | null>(null);
@@ -102,16 +167,24 @@ export function ApiKeyManager() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [message, setMessage] = useState<Message>(null);
+  const [reloadTick, setReloadTick] = useState(0);
 
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
-  const provider = PROVIDERS.find((entry) => entry.id === selectedId) ?? PROVIDERS[0];
-  const providerKeys = keys.filter((key) => key.provider === selectedId);
-  const enabledCount = providerKeys.filter((key) => key.enabled).length;
-  const storageReady = storage?.state === "ready";
-  const atLimit = providerKeys.length >= MAX_KEYS_PER_PROVIDER;
+  const provider =
+    PROVIDERS.find((entry) => entry.id === selectedId) ??
+    PROVIDERS[0];
 
-  const [reloadTick, setReloadTick] = useState(0);
+  const providerKeys = keys.filter(
+    (key) => key.provider === selectedId
+  );
+  const enabledCount = providerKeys.filter(
+    (key) => key.enabled
+  ).length;
+
+  const storageReady = storage?.state === "ready";
+  const atLimit =
+    providerKeys.length >= MAX_KEYS_PER_PROVIDER;
 
   useEffect(() => {
     let ignore = false;
@@ -121,14 +194,21 @@ export function ApiKeyManager() {
         const response = await fetch("/api/api-keys", {
           cache: "no-store",
         });
-        const payload: unknown = await response.json().catch(() => null);
+
+        const payload: unknown = await response
+          .json()
+          .catch(() => null);
+
         const list = readList(payload);
 
         if (ignore) return;
 
         if (!response.ok || !list) {
           setLoadError(
-            readMessage(payload, "The server sent an unexpected answer."),
+            readMessage(
+              payload,
+              "The server sent an unexpected response."
+            )
           );
           return;
         }
@@ -139,7 +219,7 @@ export function ApiKeyManager() {
       } catch {
         if (!ignore) {
           setLoadError(
-            "Could not reach the server. Check that the dev server is running.",
+            "Could not reach the server. Check your connection and try again."
           );
         }
       } finally {
@@ -158,12 +238,12 @@ export function ApiKeyManager() {
 
   function retryLoad() {
     setLoading(true);
+    setLoadError(null);
     setReloadTick((tick) => tick + 1);
   }
 
   function selectProvider(id: ProviderId) {
     setSelectedId(id);
-    // Never carry a half-typed key over to another provider.
     setSecret("");
     setReveal(false);
     setFieldError(null);
@@ -171,119 +251,206 @@ export function ApiKeyManager() {
     setMessage(null);
   }
 
-  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+  function handleTabKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number
+  ) {
     let nextIndex = index;
+
     if (event.key === "ArrowRight") {
       nextIndex = (index + 1) % PROVIDERS.length;
     } else if (event.key === "ArrowLeft") {
-      nextIndex = (index - 1 + PROVIDERS.length) % PROVIDERS.length;
+      nextIndex =
+        (index - 1 + PROVIDERS.length) % PROVIDERS.length;
     } else {
       return;
     }
+
     event.preventDefault();
+
     const next = PROVIDERS[nextIndex];
     selectProvider(next.id);
     tabRefs.current[next.id]?.focus();
   }
 
-  async function handleAdd(event: FormEvent<HTMLFormElement>) {
+  async function handleAdd(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
-    if (adding || !storageReady) {
+
+    if (adding || !storageReady || atLimit) {
       return;
     }
 
-    const problem = validateLabel(label) ?? validateApiKey(secret);
+    const cleanLabel = label.trim();
+    const cleanSecret = secret.trim();
+    const problem =
+      validateLabel(cleanLabel) ??
+      validateApiKey(cleanSecret);
+
     if (problem) {
       setFieldError(problem);
       return;
     }
-    if (providerKeys.some((key) => key.label.toLowerCase() === label.trim().toLowerCase())) {
-      setFieldError("A key with this label already exists for this provider.");
+
+    if (
+      providerKeys.some(
+        (key) =>
+          key.label.toLowerCase() === cleanLabel.toLowerCase()
+      )
+    ) {
+      setFieldError(
+        "A key with this label already exists for this provider."
+      );
       return;
     }
 
     setFieldError(null);
     setMessage(null);
     setAdding(true);
+
     try {
       const response = await fetch("/api/api-keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           provider: selectedId,
-          label: label.trim(),
-          apiKey: secret.trim(),
+          label: cleanLabel,
+          apiKey: cleanSecret,
         }),
       });
-      const payload: unknown = await response.json().catch(() => null);
+
+      const payload: unknown = await response
+        .json()
+        .catch(() => null);
+
       const saved = readKey(payload);
-      if (saved) {
+
+      if (response.ok && saved) {
         setKeys((previous) => [...previous, saved]);
-        // The typed key is removed from the page as soon as it is saved.
         setLabel("");
         setSecret("");
         setReveal(false);
-        setMessage({ kind: "success", text: `Saved "${saved.label}". It is encrypted on this computer.` });
+        setMessage({
+          kind: "success",
+          text: `Saved "${saved.label}".`,
+        });
       } else {
-        setMessage({ kind: "error", text: readMessage(payload, "The key could not be saved.") });
+        setMessage({
+          kind: "error",
+          text: readMessage(
+            payload,
+            "The key could not be saved."
+          ),
+        });
       }
     } catch {
-      setMessage({ kind: "error", text: "Could not reach the server. The key was not saved." });
+      setMessage({
+        kind: "error",
+        text: "Could not reach the server. The key was not saved.",
+      });
     } finally {
       setAdding(false);
     }
   }
 
   async function handleToggle(key: PublicKey) {
-    if (busyId) {
-      return;
-    }
+    if (busyId !== null) return;
+
     setBusyId(key.id);
     setMessage(null);
+
     try {
       const response = await fetch("/api/api-keys", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: key.id, enabled: !key.enabled }),
+        body: JSON.stringify({
+          id: key.id,
+          enabled: !key.enabled,
+        }),
       });
-      const payload: unknown = await response.json().catch(() => null);
+
+      const payload: unknown = await response
+        .json()
+        .catch(() => null);
+
       const updated = readKey(payload);
-      if (updated) {
-        setKeys((previous) => previous.map((entry) => (entry.id === updated.id ? updated : entry)));
+
+      if (response.ok && updated) {
+        setKeys((previous) =>
+          previous.map((entry) =>
+            entry.id === updated.id ? updated : entry
+          )
+        );
+
         setMessage({
           kind: "success",
-          text: `"${updated.label}" is now ${updated.enabled ? "enabled" : "disabled"}.`,
+          text: `"${updated.label}" is now ${
+            updated.enabled ? "enabled" : "disabled"
+          }.`,
         });
       } else {
-        setMessage({ kind: "error", text: readMessage(payload, "The key could not be updated.") });
+        setMessage({
+          kind: "error",
+          text: readMessage(
+            payload,
+            "The key could not be updated."
+          ),
+        });
       }
     } catch {
-      setMessage({ kind: "error", text: "Could not reach the server. Nothing was changed." });
+      setMessage({
+        kind: "error",
+        text: "Could not reach the server. Nothing was changed.",
+      });
     } finally {
       setBusyId(null);
     }
   }
 
   async function handleRemove(key: PublicKey) {
-    if (busyId) {
-      return;
-    }
+    if (busyId !== null) return;
+
     setBusyId(key.id);
     setMessage(null);
+
     try {
-      const response = await fetch(`/api/api-keys?id=${encodeURIComponent(key.id)}`, {
-        method: "DELETE",
-      });
-      const payload: unknown = await response.json().catch(() => null);
-      if (isRecord(payload) && payload.success === true) {
-        setKeys((previous) => previous.filter((entry) => entry.id !== key.id));
+      const response = await fetch(
+        `/api/api-keys?id=${encodeURIComponent(key.id)}`,
+        { method: "DELETE" }
+      );
+
+      const payload: unknown = await response
+        .json()
+        .catch(() => null);
+
+      if (
+        response.ok &&
+        isRecord(payload) &&
+        payload.success === true
+      ) {
+        setKeys((previous) =>
+          previous.filter((entry) => entry.id !== key.id)
+        );
         setConfirmId(null);
-        setMessage({ kind: "success", text: `Removed "${key.label}".` });
+        setMessage({
+          kind: "success",
+          text: `Removed "${key.label}".`,
+        });
       } else {
-        setMessage({ kind: "error", text: readMessage(payload, "The key could not be removed.") });
+        setMessage({
+          kind: "error",
+          text: readMessage(
+            payload,
+            "The key could not be removed."
+          ),
+        });
       }
     } catch {
-      setMessage({ kind: "error", text: "Could not reach the server. Nothing was removed." });
+      setMessage({
+        kind: "error",
+        text: "Could not reach the server. Nothing was removed.",
+      });
     } finally {
       setBusyId(null);
     }
@@ -295,8 +462,8 @@ export function ApiKeyManager() {
         <span className="eyebrow">Settings</span>
         <h1>API Key Manager</h1>
         <p>
-          Manage the AI provider keys METAFORGE AI PRO uses. Saved keys are encrypted on the
-          server and are never shown again after they are saved.
+          Manage your AI provider keys for METAFORGE AI PRO.
+          Saved keys are not shown again after they are saved.
         </p>
       </header>
 
@@ -305,54 +472,78 @@ export function ApiKeyManager() {
           Loading saved keys...
         </p>
       ) : loadError ? (
-        <div className="card ak-notice" data-level="warn" role="alert">
-          <span className="ak-notice-icon">
-            <Icon name="key" size={20} />
-          </span>
-          <div>
-            <h2 className="section-title">Could not load the key manager</h2>
-            <p>{loadError}</p>
-            <button type="button" className="button" onClick={retryLoad}>
-              Try again
-            </button>
-          </div>
-        </div>
-      ) : storage ? (
-        <div className="card ak-notice" data-level={storageReady ? "ok" : "warn"} role="note">
+        <div
+          className="card ak-notice"
+          data-level="warn"
+          role="alert"
+        >
           <span className="ak-notice-icon">
             <Icon name="key" size={20} />
           </span>
           <div>
             <h2 className="section-title">
-              {storageReady ? "Key storage is active (local development)" : "Key storage is not ready"}
+              Could not load the key manager
+            </h2>
+            <p>{loadError}</p>
+            <button
+              type="button"
+              className="button"
+              onClick={retryLoad}
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      ) : storage ? (
+        <div
+          className="card ak-notice"
+          data-level={storageReady ? "ok" : "warn"}
+          role="note"
+        >
+          <span className="ak-notice-icon">
+            <Icon name="key" size={20} />
+          </span>
+          <div>
+            <h2 className="section-title">
+              {storageReady
+                ? "Key storage is active"
+                : "Key storage is not ready"}
             </h2>
             <p>{storage.message}</p>
-            {storage.state === "missing_secret" ? (
-              <pre className="ak-code">
-                {`$bytes = New-Object byte[] 32
-[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-Add-Content -Path ".env.local" -Value ("\`nKEY_ENCRYPTION_SECRET=" + [Convert]::ToBase64String($bytes))`}
-              </pre>
-            ) : null}
-            {storageReady ? (
+            {!storageReady ? (
               <p>
-                There is no sign-in yet, so anyone using this computer can manage these keys. Keep
-                the encryption secret private.
+                Please contact the administrator to finish
+                configuring secure API key storage.
               </p>
-            ) : null}
+            ) : (
+              <p>
+                Manage only API keys belonging to your signed-in
+                account. The server must verify account ownership
+                for every key operation.
+              </p>
+            )}
           </div>
         </div>
       ) : null}
 
       <section aria-labelledby="ak-providers-heading">
         <div className="section-head">
-          <h2 id="ak-providers-heading" className="section-title">
+          <h2
+            id="ak-providers-heading"
+            className="section-title"
+          >
             Providers
           </h2>
-          <span className="section-note">Up to {MAX_KEYS_PER_PROVIDER} keys per provider</span>
+          <span className="section-note">
+            Up to {MAX_KEYS_PER_PROVIDER} keys per provider
+          </span>
         </div>
 
-        <div className="ak-tabs" role="tablist" aria-label="AI providers">
+        <div
+          className="ak-tabs"
+          role="tablist"
+          aria-label="AI providers"
+        >
           {PROVIDERS.map((entry, index) => (
             <button
               key={entry.id}
@@ -367,11 +558,17 @@ Add-Content -Path ".env.local" -Value ("\`nKEY_ENCRYPTION_SECRET=" + [Convert]::
               aria-controls="ak-panel"
               tabIndex={entry.id === selectedId ? 0 : -1}
               onClick={() => selectProvider(entry.id)}
-              onKeyDown={(event) => handleTabKeyDown(event, index)}
+              onKeyDown={(event) =>
+                handleTabKeyDown(event, index)
+              }
             >
               {entry.name}
               <span className="ak-tab-count">
-                {keys.filter((key) => key.provider === entry.id).length}
+                {
+                  keys.filter(
+                    (key) => key.provider === entry.id
+                  ).length
+                }
               </span>
             </button>
           ))}
@@ -391,10 +588,12 @@ Add-Content -Path ".env.local" -Value ("\`nKEY_ENCRYPTION_SECRET=" + [Convert]::
               <div>
                 <h3>{provider.name}</h3>
                 <p className="ak-count">
-                  {providerKeys.length} / {MAX_KEYS_PER_PROVIDER} keys configured
+                  {providerKeys.length} / {MAX_KEYS_PER_PROVIDER}{" "}
+                  keys configured
                 </p>
               </div>
             </div>
+
             <span className="status-pill">
               <span className="status-dot" aria-hidden="true" />
               {providerKeys.length === 0
@@ -404,14 +603,20 @@ Add-Content -Path ".env.local" -Value ("\`nKEY_ENCRYPTION_SECRET=" + [Convert]::
           </div>
 
           <p className="ak-summary">{provider.summary}</p>
+
           {provider.id !== "gemini" ? (
             <p className="ak-summary">
-              Keys saved here are not used by any tool yet. Only Google Gemini is connected to the
-              Metadata Generator so far.
+              Keys saved for this provider may not be connected
+              to a tool yet. Check the current integration status
+              before relying on them.
             </p>
           ) : null}
 
-          <form className="ak-form" onSubmit={handleAdd} noValidate>
+          <form
+            className="ak-form"
+            onSubmit={handleAdd}
+            noValidate
+          >
             <div className="ak-field">
               <label className="ak-label" htmlFor="ak-label">
                 Key label
@@ -425,7 +630,9 @@ Add-Content -Path ".env.local" -Value ("\`nKEY_ENCRYPTION_SECRET=" + [Convert]::
                 placeholder={`${provider.name} Primary`}
                 autoComplete="off"
                 disabled={!storageReady || atLimit || adding}
-                onChange={(event) => setLabel(event.target.value)}
+                onChange={(event) =>
+                  setLabel(event.target.value)
+                }
               />
             </div>
 
@@ -443,14 +650,18 @@ Add-Content -Path ".env.local" -Value ("\`nKEY_ENCRYPTION_SECRET=" + [Convert]::
                   autoComplete="off"
                   spellCheck={false}
                   disabled={!storageReady || atLimit || adding}
-                  onChange={(event) => setSecret(event.target.value)}
+                  onChange={(event) =>
+                    setSecret(event.target.value)
+                  }
                 />
                 <button
                   type="button"
                   className="button"
                   aria-pressed={reveal}
                   disabled={!storageReady || atLimit || adding}
-                  onClick={() => setReveal((value) => !value)}
+                  onClick={() =>
+                    setReveal((value) => !value)
+                  }
                 >
                   {reveal ? "Hide" : "Show"}
                 </button>
@@ -468,23 +679,29 @@ Add-Content -Path ".env.local" -Value ("\`nKEY_ENCRYPTION_SECRET=" + [Convert]::
 
           {atLimit ? (
             <p className="ak-error" role="alert">
-              You have reached the limit of {MAX_KEYS_PER_PROVIDER} keys for {provider.name}. Remove
-              one to add another.
+              You have reached the limit of{" "}
+              {MAX_KEYS_PER_PROVIDER} keys for {provider.name}.
+              Remove one to add another.
             </p>
           ) : null}
+
           {fieldError ? (
             <p className="ak-error" role="alert">
               {fieldError}
             </p>
           ) : null}
+
           <p className="section-note">
-            Show and Hide only affect the key you are typing. Saved keys are never sent back to
-            this page, so only a masked value can be shown.
+            Show and Hide only affect the key you are typing.
+            Saved keys are not returned in full after saving.
           </p>
 
           <div role="status" aria-live="polite">
             {message ? (
-              <p className="ak-message" data-kind={message.kind}>
+              <p
+                className="ak-message"
+                data-kind={message.kind}
+              >
                 {message.text}
               </p>
             ) : null}
@@ -494,19 +711,32 @@ Add-Content -Path ".env.local" -Value ("\`nKEY_ENCRYPTION_SECRET=" + [Convert]::
             <EmptyState
               icon="key"
               title="No keys saved"
-              description={`No ${provider.name} keys are saved yet. Add one above. Each saved key appears here with enable, disable and remove controls.`}
+              description={`No ${provider.name} keys are saved yet. Add one above. Saved keys appear here with enable, disable and remove controls.`}
             />
           ) : (
-            <ul className="ak-list" aria-label={`${provider.name} keys`}>
+            <ul
+              className="ak-list"
+              aria-label={`${provider.name} keys`}
+            >
               {providerKeys.map((key) => (
-                <li key={key.id} className="ak-row" data-enabled={key.enabled ? "true" : "false"}>
+                <li
+                  key={key.id}
+                  className="ak-row"
+                  data-enabled={key.enabled ? "true" : "false"}
+                >
                   <div className="ak-row-main">
-                    <strong className="ak-row-label">{key.label}</strong>
-                    <code className="ak-masked" aria-label="Saved key, hidden">
+                    <strong className="ak-row-label">
+                      {key.label}
+                    </strong>
+                    <code
+                      className="ak-masked"
+                      aria-label="Saved key, hidden"
+                    >
                       {key.masked}
                     </code>
                     <span className="ak-row-meta">
-                      {provider.name} - {key.enabled ? "Enabled" : "Disabled"} -{" "}
+                      {provider.name} -{" "}
+                      {key.enabled ? "Enabled" : "Disabled"} -{" "}
                       {resultText(key.lastResult)} - Added{" "}
                       {new Date(key.createdAt).toLocaleDateString()}
                     </span>
@@ -518,14 +748,22 @@ Add-Content -Path ".env.local" -Value ("\`nKEY_ENCRYPTION_SECRET=" + [Convert]::
                       role="switch"
                       className="ak-switch"
                       aria-checked={key.enabled}
-                      aria-label={`${key.enabled ? "Disable" : "Enable"} ${key.label}`}
+                      aria-label={`${
+                        key.enabled ? "Disable" : "Enable"
+                      } ${key.label}`}
                       disabled={busyId !== null}
                       onClick={() => handleToggle(key)}
                     />
-                    <span className="ak-switch-text">{key.enabled ? "Enabled" : "Disabled"}</span>
+                    <span className="ak-switch-text">
+                      {key.enabled ? "Enabled" : "Disabled"}
+                    </span>
 
                     {confirmId === key.id ? (
-                      <span className="ak-confirm" role="group" aria-label={`Confirm removing ${key.label}`}>
+                      <span
+                        className="ak-confirm"
+                        role="group"
+                        aria-label={`Confirm removing ${key.label}`}
+                      >
                         <span>Remove this key?</span>
                         <button
                           type="button"
@@ -541,7 +779,9 @@ Add-Content -Path ".env.local" -Value ("\`nKEY_ENCRYPTION_SECRET=" + [Convert]::
                           disabled={busyId !== null}
                           onClick={() => handleRemove(key)}
                         >
-                          {busyId === key.id ? "Removing..." : "Yes, remove"}
+                          {busyId === key.id
+                            ? "Removing..."
+                            : "Yes, remove"}
                         </button>
                       </span>
                     ) : (

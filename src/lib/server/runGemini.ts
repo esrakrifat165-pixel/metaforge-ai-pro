@@ -1,9 +1,10 @@
 import { GeminiError, generateRawMetadata, type GeminiErrorCode } from "./gemini";
 import { getCandidates, recordKeyResult } from "./keyStore";
 
-// SERVER ONLY. Picks enabled saved keys (or the environment key), calls Gemini,
-// and tries at most MAX_KEY_ATTEMPTS keys when a key is rejected or rate-limited.
-// Disabled keys are never returned by getCandidates(), so they are never used.
+// SERVER ONLY. Picks the CALLING USER's enabled saved keys (or, for the verified admin
+// only, the environment key), calls Gemini, and tries at most MAX_KEY_ATTEMPTS keys when
+// a key is rejected or rate-limited.
+// `userId` must come from the server-verified session, never from the request body.
 
 const MAX_KEY_ATTEMPTS = 3;
 
@@ -19,6 +20,7 @@ const STATUS_BY_CODE: Record<GeminiErrorCode, number> = {
 };
 
 export type GeminiRunInput = {
+  userId: string;
   model: string;
   mimeType: string;
   base64: string;
@@ -43,7 +45,7 @@ function failure(status: number, code: string, message: string, retryable: boole
 }
 
 export async function runGeminiWithKeys(input: GeminiRunInput): Promise<GeminiRunResult> {
-  const resolved = await getCandidates("gemini");
+  const resolved = await getCandidates(input.userId, "gemini");
   if (!resolved.ok) {
     if (resolved.code === "key_store_error") {
       return failure(500, "key_store_error", resolved.message, false);
@@ -66,14 +68,14 @@ export async function runGeminiWithKeys(input: GeminiRunInput): Promise<GeminiRu
         keywordMax: input.keywordMax,
         schema: input.schema,
       });
-      await recordKeyResult(candidate.id, "ok");
+      await recordKeyResult(input.userId, candidate.id, "ok");
       return { ok: true, raw };
     } catch (error) {
       if (error instanceof GeminiError) {
         if (error.code === "invalid_key") {
-          await recordKeyResult(candidate.id, "rejected");
+          await recordKeyResult(input.userId, candidate.id, "rejected");
         } else if (error.code === "rate_limited") {
-          await recordKeyResult(candidate.id, "rate_limited");
+          await recordKeyResult(input.userId, candidate.id, "rate_limited");
         }
 
         const keySpecific = error.code === "invalid_key" || error.code === "rate_limited";

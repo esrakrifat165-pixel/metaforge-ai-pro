@@ -51,7 +51,8 @@ export default async function AdminPage() {
 
   if (storage.state === "ready") {
     try {
-      keys = await listKeys();
+      // Only the signed-in admin's OWN keys. The id comes from the verified session.
+      keys = await listKeys(access.userId);
     } catch {
       keysError =
         "The saved keys could not be read. Check that the api_keys SQL was run and that SUPABASE_SERVICE_ROLE_KEY is correct.";
@@ -59,7 +60,7 @@ export default async function AdminPage() {
   }
 
   // Only the yes/no result and its source are used. No key value is ever shown.
-  const gemini = await getCandidates("gemini");
+  const gemini = await getCandidates(access.userId, "gemini");
   const geminiText = gemini.ok
     ? gemini.source === "store"
       ? "Available (saved key)"
@@ -172,8 +173,9 @@ export default async function AdminPage() {
           </table>
         </div>
         <p className="section-note">
-          Counts come from the saved keys. A saved key is not proof that it works. The key manager
-          shows what the last real request did.
+          Counts are for the keys saved under your own account only. Each user has their own keys.
+          A saved key is not proof that it works. The key manager shows what the last real request
+          did.
         </p>
       </section>
 

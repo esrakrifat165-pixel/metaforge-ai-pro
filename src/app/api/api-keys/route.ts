@@ -1,171 +1,387 @@
-import { adminApiGuard } from "../../../lib/auth/session";
-import { MAX_KEYS_PER_PROVIDER, PROVIDERS, type ProviderId } from "../../../lib/providers/catalog";
-import { validateApiKey, validateLabel } from "../../../lib/keys/shared";
-import { addKey, getStorageState, listKeys, removeKey, setEnabled } from "../../../lib/server/keyStore";
+import { getAccess } from "../../../lib/auth/session";
+import {
+  MAX_KEYS_PER_PROVIDER,
+  PROVIDERS,
+  type ProviderId,
+} from "../../../lib/providers/catalog";
+import {
+  validateApiKey,
+  validateLabel,
+} from "../../../lib/keys/shared";
+import {
+  addKey,
+  getStorageState,
+  listKeys,
+  removeKey,
+  setEnabled,
+} from "../../../lib/server/keyStore";
 import { checkRateLimit } from "../../../lib/server/rateLimit";
 
-// Responses NEVER include a saved secret. Only masked values are returned.
-// Every request needs a signed-in admin (checked on the server).
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-const ID_PATTERN = /^[0-9a-fA-F-]{36}$/;
+const ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function reply(body: Record<string, unknown>, status = 200): Response {
-  return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+type GuardResult =
+  | { ok: true; userId: string }
+  | { ok: false; response: Response };
+
+function reply(
+  body: Record<string, unknown>,
+  status = 200,
+): Response {
+  return Response.json(body, {
+    status,
+    headers: {
+      "Cache-Control": "no-store, private",
+      Pragma: "no-cache",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }
 
-function fail(status: number, code: string, message: string): Response {
+function fail(
+  status: number,
+  code: string,
+  message: string,
+): Response {
   return reply({ success: false, code, message }, status);
 }
 
 function isSameOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
-  if (!origin) {
-    return true;
-  }
+
+  // Write requests must include a valid Origin header.
+  if (!origin) return false;
+
   try {
-    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-    return host !== null && new URL(origin).host === host;
+    const originUrl = new URL(origin);
+    const forwardedHost = request.headers
+      .get("x-forwarded-host")
+      ?.split(",")[0]
+      ?.trim();
+
+    const requestHost =
+      forwardedHost ||
+      request.headers.get("host");
+
+    if (!requestHost) return false;
+
+    return (
+      originUrl.host.toLowerCase() === requestHost.toLowerCase() &&
+      (originUrl.protocol === "https:" ||
+        originUrl.protocol === "http:")
+    );
   } catch {
     return false;
   }
 }
 
-async function guard(request: Request): Promise<Response | null> {
-  if (!isSameOrigin(request)) {
-    return fail(403, "forbidden", "This request was not allowed.");
+async function guard(
+  request: Request,
+  requireSameOrigin = false,
+): Promise<GuardResult> {
+  if (requireSameOrigin && !isSameOrigin(request)) {
+    return {
+      ok: false,
+      response: fail(
+        403,
+        "forbidden",
+        "This request was not allowed.",
+      ),
+    };
   }
-  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  const limit = checkRateLimit(`api-keys:${client}`, 120, 60_000);
+
+  const client =
+    request.headers
+      .get("x-forwarded-for")
+      ?.split(",")[0]
+      ?.trim() || "local";
+
+  const limit = checkRateLimit(
+    `api-keys:${client}`,
+    120,
+    60_000,
+  );
+
   if (!limit.allowed) {
-    return fail(429, "rate_limited", "Too many requests. Please wait a moment.");
+    return {
+      ok: false,
+      response: fail(
+        429,
+        "rate_limited",
+        "Too many requests. Please wait a moment.",
+      ),
+    };
   }
-  return adminApiGuard();
+
+  try {
+    const access = await getAccess();
+
+    if (!access.ok) {
+      return {
+        ok: false,
+        response: fail(
+          access.status,
+          access.code,
+          access.message,
+        ),
+      };
+    }
+
+    return { ok: true, userId: access.userId };
+  } catch {
+    return {
+      ok: false,
+      response: fail(
+        500,
+        "auth_error",
+        "Authentication could not be verified. Please try again.",
+      ),
+    };
+  }
 }
 
-async function readBody(request: Request): Promise<Record<string, unknown> | null> {
+async function readBody(
+  request: Request,
+): Promise<Record<string, unknown> | null> {
   try {
     const value: unknown = await request.json();
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : null;
+
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value)
+    ) {
+      return null;
+    }
+
+    return value as Record<string, unknown>;
   } catch {
     return null;
   }
 }
 
-function asProviderId(value: unknown): ProviderId | null {
-  return typeof value === "string" && PROVIDERS.some((provider) => provider.id === value)
-    ? (value as ProviderId)
-    : null;
+function asProviderId(
+  value: unknown,
+): ProviderId | null {
+  if (typeof value !== "string") return null;
+
+  const provider = PROVIDERS.find(
+    (item) => item.id === value,
+  );
+
+  return provider ? (provider.id as ProviderId) : null;
 }
 
-export async function GET(request: Request): Promise<Response> {
-  const blocked = await guard(request);
-  if (blocked) {
-    return blocked;
-  }
+export async function GET(
+  request: Request,
+): Promise<Response> {
+  const checked = await guard(request);
+
+  if (!checked.ok) return checked.response;
 
   const storage = getStorageState();
-  if (storage.state !== "ready") {
-    return reply({ success: true, storage, limit: MAX_KEYS_PER_PROVIDER, keys: [] });
-  }
 
-  try {
-    const keys = await listKeys();
-    return reply({ success: true, storage, limit: MAX_KEYS_PER_PROVIDER, keys });
-  } catch {
+  if (storage.state !== "ready") {
     return reply({
       success: true,
-      storage: {
-        state: "error",
-        message:
-          "The saved keys could not be read. Check that the api_keys SQL was run in Supabase and that SUPABASE_SERVICE_ROLE_KEY is correct.",
-      },
+      storage,
       limit: MAX_KEYS_PER_PROVIDER,
       keys: [],
     });
   }
+
+  try {
+    // Only the signed-in user's keys are returned.
+    const keys = await listKeys(checked.userId);
+
+    return reply({
+      success: true,
+      storage,
+      limit: MAX_KEYS_PER_PROVIDER,
+      keys,
+    });
+  } catch {
+    return reply(
+      {
+        success: false,
+        code: "storage_error",
+        message:
+          "Saved keys could not be loaded. Check the Supabase configuration and api_keys table.",
+      },
+      500,
+    );
+  }
 }
 
-export async function POST(request: Request): Promise<Response> {
-  const blocked = await guard(request);
-  if (blocked) {
-    return blocked;
-  }
+export async function POST(
+  request: Request,
+): Promise<Response> {
+  const checked = await guard(request, true);
+
+  if (!checked.ok) return checked.response;
 
   const body = await readBody(request);
+
   if (!body) {
-    return fail(400, "invalid_request", "The request could not be read.");
+    return fail(
+      400,
+      "invalid_request",
+      "The request body is invalid.",
+    );
   }
 
   const provider = asProviderId(body.provider);
+
   if (!provider) {
-    return fail(400, "invalid_request", "Unknown provider.");
-  }
-  if (typeof body.label !== "string" || typeof body.apiKey !== "string") {
-    return fail(400, "invalid_request", "A label and an API key are required.");
+    return fail(
+      400,
+      "invalid_request",
+      "Unknown API provider.",
+    );
   }
 
-  const problem = validateLabel(body.label) ?? validateApiKey(body.apiKey);
+  if (
+    typeof body.label !== "string" ||
+    typeof body.apiKey !== "string"
+  ) {
+    return fail(
+      400,
+      "invalid_request",
+      "A label and API key are required.",
+    );
+  }
+
+  const label = body.label.trim();
+  const apiKey = body.apiKey.trim();
+
+  const problem =
+    validateLabel(label) ??
+    validateApiKey(apiKey);
+
   if (problem) {
     return fail(400, "validation_failed", problem);
   }
 
   try {
-    const result = await addKey({
+    const result = await addKey(checked.userId, {
       provider,
-      label: body.label.trim(),
-      apiKey: body.apiKey.trim(),
+      label,
+      apiKey,
     });
+
     if (!result.ok) {
-      return fail(result.status, result.code, result.message);
+      return fail(
+        result.status,
+        result.code,
+        result.message,
+      );
     }
-    return reply({ success: true, key: result.value }, 201);
+
+    // Return only the public, masked key representation.
+    return reply(
+      { success: true, key: result.value },
+      201,
+    );
   } catch {
-    return fail(500, "storage_error", "The key could not be saved. Check the Supabase setup and try again.");
+    return fail(
+      500,
+      "storage_error",
+      "The API key could not be saved. Check the server configuration.",
+    );
   }
 }
 
-export async function PATCH(request: Request): Promise<Response> {
-  const blocked = await guard(request);
-  if (blocked) {
-    return blocked;
-  }
+export async function PATCH(
+  request: Request,
+): Promise<Response> {
+  const checked = await guard(request, true);
+
+  if (!checked.ok) return checked.response;
 
   const body = await readBody(request);
-  if (!body || typeof body.id !== "string" || !ID_PATTERN.test(body.id) || typeof body.enabled !== "boolean") {
-    return fail(400, "invalid_request", "A key id and an enabled value are required.");
+
+  if (
+    !body ||
+    typeof body.id !== "string" ||
+    !ID_PATTERN.test(body.id) ||
+    typeof body.enabled !== "boolean"
+  ) {
+    return fail(
+      400,
+      "invalid_request",
+      "A valid key ID and enabled value are required.",
+    );
   }
 
   try {
-    const result = await setEnabled(body.id, body.enabled);
+    const result = await setEnabled(
+      checked.userId,
+      body.id,
+      body.enabled,
+    );
+
     if (!result.ok) {
-      return fail(result.status, result.code, result.message);
+      return fail(
+        result.status,
+        result.code,
+        result.message,
+      );
     }
-    return reply({ success: true, key: result.value });
+
+    return reply({
+      success: true,
+      key: result.value,
+    });
   } catch {
-    return fail(500, "storage_error", "The key could not be updated. Try again.");
+    return fail(
+      500,
+      "storage_error",
+      "The API key could not be updated.",
+    );
   }
 }
 
-export async function DELETE(request: Request): Promise<Response> {
-  const blocked = await guard(request);
-  if (blocked) {
-    return blocked;
-  }
+export async function DELETE(
+  request: Request,
+): Promise<Response> {
+  const checked = await guard(request, true);
 
-  const id = new URL(request.url).searchParams.get("id") ?? "";
+  if (!checked.ok) return checked.response;
+
+  const id =
+    new URL(request.url).searchParams.get("id") ?? "";
+
   if (!ID_PATTERN.test(id)) {
-    return fail(400, "invalid_request", "A valid key id is required.");
+    return fail(
+      400,
+      "invalid_request",
+      "A valid key ID is required.",
+    );
   }
 
   try {
-    const result = await removeKey(id);
+    const result = await removeKey(
+      checked.userId,
+      id,
+    );
+
     if (!result.ok) {
-      return fail(result.status, result.code, result.message);
+      return fail(
+        result.status,
+        result.code,
+        result.message,
+      );
     }
+
     return reply({ success: true });
   } catch {
-    return fail(500, "storage_error", "The key could not be removed. Try again.");
+    return fail(
+      500,
+      "storage_error",
+      "The API key could not be removed.",
+    );
   }
 }

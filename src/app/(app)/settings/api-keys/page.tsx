@@ -1,3 +1,4 @@
+
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { ApiKeyManager } from "../../../../components/api-keys/ApiKeyManager";
@@ -10,41 +11,31 @@ export const metadata: Metadata = {
 };
 
 export default async function ApiKeysPage() {
+  // Check authentication and access permissions on the server.
   const access = await getAccess();
 
-  // Sign-in not configured (local development): keep the page usable as before.
-  if (!access.ok && access.code === "auth_not_configured") {
-    return <ApiKeyManager />;
-  }
-
   if (!access.ok) {
+    // Redirect users who are not signed in or are not allowed.
     if (access.status === 401 || access.code === "not_allowed") {
       redirect("/login");
     }
+
     return (
       <div className="page">
         <EmptyState
-          icon="key"
+          icon="admin"
           title="API Key Manager unavailable"
           description={access.message}
-          action={{ href: "/dashboard", label: "Back to dashboard" }}
+          action={{
+            href: "/dashboard",
+            label: "Back to dashboard",
+          }}
         />
       </div>
     );
   }
 
-  if (access.role !== "admin") {
-    return (
-      <div className="page">
-        <EmptyState
-          icon="key"
-          title="Admins only"
-          description="Only an administrator can manage API keys."
-          action={{ href: "/dashboard", label: "Back to dashboard" }}
-        />
-      </div>
-    );
-  }
-
+  // ApiKeyManager already contains its own page wrapper.
+  // Return it directly to avoid nesting two .page containers.
   return <ApiKeyManager />;
 }

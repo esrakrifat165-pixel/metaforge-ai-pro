@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getAccess } from "../../../lib/auth/session";
 import {
   buildPromptRequest,
   buildPromptSchema,
@@ -9,7 +10,7 @@ import {
   normalizePrompt,
 } from "../../../lib/prompt/generation";
 import { isKnownGeminiModel } from "../../../lib/providers/gemini-models";
-import { getCurrentUser, saveHistory } from "../../../lib/server/history";
+import { saveHistory } from "../../../lib/server/history";
 import { checkRateLimit } from "../../../lib/server/rateLimit";
 import {
   cleanFileName,
@@ -37,9 +38,10 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  const who = await getCurrentUser();
-  if (who.configured && !who.userId) {
-    return jsonError(401, "unauthenticated", "Please sign in.", false, requestId);
+  // The user id comes only from the server-verified session, never from the request.
+  const access = await getAccess();
+  if (!access.ok) {
+    return jsonError(access.status, access.code, access.message, access.status === 503, requestId);
   }
 
   let form: FormData;
@@ -72,6 +74,7 @@ export async function POST(request: Request): Promise<Response> {
   const detail = getPromptDetail(detailId);
 
   const run = await runGeminiWithKeys({
+    userId: access.userId,
     model,
     mimeType: upload.mimeType,
     base64: Buffer.from(upload.bytes).toString("base64"),
@@ -96,17 +99,14 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError(502, "bad_response", `${normalized.message} Try again.`, true, requestId);
   }
 
-  let saved = false;
-  if (who.userId) {
-    saved = await saveHistory(who.userId, {
-      kind: "prompt",
-      fileName: cleanFileName(formField(form, "fileName")),
-      provider: "gemini",
-      model,
-      platform: null,
-      result: { prompt: normalized.prompt, style: style.id, detail: detail.id },
-    });
-  }
+  const saved = await saveHistory(access.userId, {
+    kind: "prompt",
+    fileName: cleanFileName(formField(form, "fileName")),
+    provider: "gemini",
+    model,
+    platform: null,
+    result: { prompt: normalized.prompt, style: style.id, detail: detail.id },
+  });
 
   return Response.json(
     {

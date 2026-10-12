@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getAccess } from "../../../lib/auth/session";
 import {
   effectiveKeywordCount,
   getPlatformProfile,
@@ -6,7 +7,7 @@ import {
 } from "../../../lib/platforms/profiles";
 import { isKnownGeminiModel } from "../../../lib/providers/gemini-models";
 import { generateStrictMetadata } from "../../../lib/server/generateStrictMetadata";
-import { getCurrentUser, saveHistory } from "../../../lib/server/history";
+import { saveHistory } from "../../../lib/server/history";
 import { checkRateLimit } from "../../../lib/server/rateLimit";
 import {
   cleanFileName,
@@ -33,9 +34,10 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  const who = await getCurrentUser();
-  if (who.configured && !who.userId) {
-    return jsonError(401, "unauthenticated", "Please sign in.", false, requestId);
+  // The user id comes only from the server-verified session, never from the request.
+  const access = await getAccess();
+  if (!access.ok) {
+    return jsonError(access.status, access.code, access.message, access.status === 503, requestId);
   }
 
   let form: FormData;
@@ -71,6 +73,7 @@ export async function POST(request: Request): Promise<Response> {
   const count = effectiveKeywordCount(profile, requested);
 
   const generated = await generateStrictMetadata({
+    userId: access.userId,
     model,
     mimeType: upload.mimeType,
     base64: Buffer.from(upload.bytes).toString("base64"),
@@ -93,17 +96,14 @@ export async function POST(request: Request): Promise<Response> {
   const { title, description, keywords } = generated.data;
   const warnings = generated.warnings;
 
-  let saved = false;
-  if (who.userId) {
-    saved = await saveHistory(who.userId, {
-      kind: "metadata",
-      fileName: cleanFileName(formField(form, "fileName")),
-      provider: "gemini",
-      model,
-      platform: profile.id,
-      result: { title, description, keywords, warnings },
-    });
-  }
+  const saved = await saveHistory(access.userId, {
+    kind: "metadata",
+    fileName: cleanFileName(formField(form, "fileName")),
+    provider: "gemini",
+    model,
+    platform: profile.id,
+    result: { title, description, keywords, warnings },
+  });
 
   return Response.json(
     {

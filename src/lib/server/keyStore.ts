@@ -9,7 +9,11 @@ import { getSupabaseEnv } from "../supabase/env";
 // Keys are encrypted with AES-256-GCM (secret: KEY_ENCRYPTION_SECRET) and stored in the
 // Supabase table public.api_keys. The table has row-level security and no policies, so
 // only the server, using SUPABASE_SERVICE_ROLE_KEY, can read or write it.
-// Callers must check admin rights before using listKeys/addKey/setEnabled/removeKey.
+//
+// IMPORTANT: the service-role client bypasses RLS, so the owner_id filters in this file
+// are the ONLY isolation between users. Every operation takes a required `userId`, which
+// callers must take from the server-verified session (supabase.auth.getUser()), never from
+// a request body, query string or any other client-supplied value.
 
 type EncryptedSecret = { iv: string; tag: string; data: string };
 
@@ -39,11 +43,13 @@ export type CandidateResult =
 export class KeyStoreError extends Error {}
 
 const TABLE = "api_keys";
+const PROFILES_TABLE = "profiles";
 const PUBLIC_COLUMNS = "id,provider,label,last4,enabled,created_at,last_result,last_used_at";
 const ENV_NAMES: Partial<Record<ProviderId, string[]>> = {
   gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
 };
 const RECENT_FAILURE_MS = 2 * 60 * 1000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /* ---------- Guards ---------- */
 
@@ -79,7 +85,6 @@ function isPublicRow(value: unknown): value is PublicRow {
   );
 }
 
-
 function isSecretRow(value: unknown): value is SecretRow {
   if (!isRecord(value)) {
     return false;
@@ -88,6 +93,10 @@ function isSecretRow(value: unknown): value is SecretRow {
   const secretField = value.secret;
 
   return isEncrypted(secretField) && isPublicRow(value);
+}
+
+function isValidUserId(value: unknown): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value);
 }
 
 /* ---------- Configuration ---------- */
@@ -208,10 +217,21 @@ function notReady(): { ok: false; code: string; message: string; status: number 
   return { ok: false, code: "storage_unavailable", message: getStorageState().message, status: 503 };
 }
 
-async function fetchRows(provider: ProviderId): Promise<SecretRow[]> {
+function badUser(): { ok: false; code: string; message: string; status: number } {
+  return {
+    ok: false,
+    code: "unauthorized",
+    message: "You must be signed in to manage API keys.",
+    status: 401,
+  };
+}
+
+/** Only the rows owned by `userId`. Every read of secrets goes through here. */
+async function fetchRows(userId: string, provider: ProviderId): Promise<SecretRow[]> {
   const { data, error } = await db()
     .from(TABLE)
     .select(`${PUBLIC_COLUMNS},secret`)
+    .eq("owner_id", userId)
     .eq("provider", provider);
   const rows: unknown = data;
   if (error || !Array.isArray(rows) || !rows.every(isSecretRow)) {
@@ -220,15 +240,40 @@ async function fetchRows(provider: ProviderId): Promise<SecretRow[]> {
   return rows;
 }
 
+/**
+ * True only if public.profiles says this UUID is an admin. Checked on the server with the
+ * service client; fails closed (false) on any error or unexpected shape.
+ */
+async function isVerifiedAdmin(userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await db()
+      .from(PROFILES_TABLE)
+      .select("role")
+      .eq("id", userId)
+      .maybeSingle();
+    if (error) {
+      return false;
+    }
+    const row: unknown = data;
+    return isRecord(row) && row.role === "admin";
+  } catch {
+    return false;
+  }
+}
+
 /* ---------- Public operations ---------- */
 
-export async function listKeys(): Promise<PublicKey[]> {
+export async function listKeys(userId: string): Promise<PublicKey[]> {
+  if (!isValidUserId(userId)) {
+    throw new KeyStoreError("A valid user is required to read keys.");
+  }
   if (getStorageState().state !== "ready") {
     return [];
   }
   const { data, error } = await db()
     .from(TABLE)
     .select(PUBLIC_COLUMNS)
+    .eq("owner_id", userId)
     .order("created_at", { ascending: true });
   const rows: unknown = data;
   if (error || !Array.isArray(rows) || !rows.every(isPublicRow)) {
@@ -237,11 +282,17 @@ export async function listKeys(): Promise<PublicKey[]> {
   return rows.map(toPublic);
 }
 
-export async function addKey(input: {
-  provider: ProviderId;
-  label: string;
-  apiKey: string;
-}): Promise<KeyResult<PublicKey>> {
+export async function addKey(
+  userId: string,
+  input: {
+    provider: ProviderId;
+    label: string;
+    apiKey: string;
+  },
+): Promise<KeyResult<PublicKey>> {
+  if (!isValidUserId(userId)) {
+    return badUser();
+  }
   if (getStorageState().state !== "ready") {
     return notReady();
   }
@@ -250,7 +301,8 @@ export async function addKey(input: {
     return notReady();
   }
 
-  const sameProvider = await fetchRows(input.provider);
+  // Limit and duplicate checks only look at THIS user's keys.
+  const sameProvider = await fetchRows(userId, input.provider);
 
   if (sameProvider.length >= MAX_KEYS_PER_PROVIDER) {
     return {
@@ -284,6 +336,7 @@ export async function addKey(input: {
     .from(TABLE)
     .insert({
       id,
+      owner_id: userId,
       provider: input.provider,
       label: input.label,
       last4: input.apiKey.slice(-4),
@@ -320,7 +373,14 @@ export async function addKey(input: {
   return { ok: true, value: toPublic(row) };
 }
 
-export async function setEnabled(id: string, enabled: boolean): Promise<KeyResult<PublicKey>> {
+export async function setEnabled(
+  userId: string,
+  id: string,
+  enabled: boolean,
+): Promise<KeyResult<PublicKey>> {
+  if (!isValidUserId(userId)) {
+    return badUser();
+  }
   if (getStorageState().state !== "ready") {
     return notReady();
   }
@@ -328,6 +388,7 @@ export async function setEnabled(id: string, enabled: boolean): Promise<KeyResul
     .from(TABLE)
     .update({ enabled })
     .eq("id", id)
+    .eq("owner_id", userId)
     .select(PUBLIC_COLUMNS)
     .maybeSingle();
   if (error) {
@@ -343,11 +404,19 @@ export async function setEnabled(id: string, enabled: boolean): Promise<KeyResul
   return { ok: true, value: toPublic(row) };
 }
 
-export async function removeKey(id: string): Promise<KeyResult<true>> {
+export async function removeKey(userId: string, id: string): Promise<KeyResult<true>> {
+  if (!isValidUserId(userId)) {
+    return badUser();
+  }
   if (getStorageState().state !== "ready") {
     return notReady();
   }
-  const { data, error } = await db().from(TABLE).delete().eq("id", id).select("id");
+  const { data, error } = await db()
+    .from(TABLE)
+    .delete()
+    .eq("id", id)
+    .eq("owner_id", userId)
+    .select("id");
   if (error) {
     throw new KeyStoreError("The key could not be removed.");
   }
@@ -357,19 +426,21 @@ export async function removeKey(id: string): Promise<KeyResult<true>> {
   return { ok: true, value: true };
 }
 
-/** Records what really happened the last time a stored key was used. */
+/** Records what really happened the last time a stored key was used. Owner-scoped. */
 export async function recordKeyResult(
+  userId: string,
   id: string,
   result: Exclude<LastResult, null>,
 ): Promise<void> {
-  if (!id || getStorageState().state !== "ready") {
+  if (!id || !isValidUserId(userId) || getStorageState().state !== "ready") {
     return;
   }
   try {
     const { error } = await db()
       .from(TABLE)
       .update({ last_result: result, last_used_at: new Date().toISOString() })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("owner_id", userId);
     if (error) {
       console.error("[key-store] could not record the result of a key");
     }
@@ -405,18 +476,32 @@ function readEnvCandidates(provider: ProviderId): Candidate[] {
 }
 
 /**
- * Keys the server may use for this provider, in the order to try them.
- * - If any keys are saved for the provider, only ENABLED saved keys are used.
+ * Keys this user may use for this provider, in the order to try them.
+ * - Only keys owned by `userId` are ever considered.
+ * - If the user has saved keys for the provider, only ENABLED ones are used.
  *   If all are disabled, nothing is used (the environment key is NOT a back door).
- * - If none are saved, the environment key is used when it exists (Gemini only for now).
+ * - If the user has none saved, the shared environment key is used ONLY when the
+ *   server verifies (profiles.role = 'admin') that this user is the admin.
+ *   Regular users never fall back to GEMINI_API_KEY / GOOGLE_API_KEY.
  */
-export async function getCandidates(provider: ProviderId): Promise<CandidateResult> {
+export async function getCandidates(
+  userId: string,
+  provider: ProviderId,
+): Promise<CandidateResult> {
   const providerName = PROVIDERS.find((entry) => entry.id === provider)?.name ?? provider;
+
+  if (!isValidUserId(userId)) {
+    return {
+      ok: false,
+      code: "key_store_error",
+      message: "You must be signed in to use an API key.",
+    };
+  }
 
   if (getStorageState().state === "ready") {
     let stored: SecretRow[];
     try {
-      stored = await fetchRows(provider);
+      stored = await fetchRows(userId, provider);
     } catch {
       return {
         ok: false,
@@ -470,14 +555,22 @@ export async function getCandidates(provider: ProviderId): Promise<CandidateResu
     }
   }
 
-  const fromEnv = readEnvCandidates(provider);
-  if (fromEnv.length > 0) {
-    return { ok: true, source: "env", candidates: fromEnv };
+  // No saved keys for this user. Environment keys are for the verified admin only.
+  if (await isVerifiedAdmin(userId)) {
+    const fromEnv = readEnvCandidates(provider);
+    if (fromEnv.length > 0) {
+      return { ok: true, source: "env", candidates: fromEnv };
+    }
+    return {
+      ok: false,
+      code: "not_configured",
+      message: `No ${providerName} API key is available. Add one in the API Key Manager, or set it as an environment variable.`,
+    };
   }
 
   return {
     ok: false,
     code: "not_configured",
-    message: `No ${providerName} API key is available. Add one in the API Key Manager, or set it as an environment variable.`,
+    message: `You have no ${providerName} API key. Add your own in the API Key Manager.`,
   };
 }
