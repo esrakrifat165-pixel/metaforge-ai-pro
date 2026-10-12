@@ -1,4 +1,6 @@
-// Small helpers for sign-in rules. The email list is server-side only.
+// Server-side sign-in rules.
+// If ALLOWED_EMAILS is empty, any email-confirmed Google account is allowed.
+// If ALLOWED_EMAILS contains emails, only those emails are allowed.
 
 export function getAllowedEmails(): string[] {
   return (process.env.ALLOWED_EMAILS ?? "")
@@ -7,14 +9,27 @@ export function getAllowedEmails(): string[] {
     .filter((email) => email.length > 0);
 }
 
-export function isEmailAllowed(email: string | null | undefined): boolean {
-  if (!email) {
+export function isEmailAllowed(
+  email: string | null | undefined,
+): boolean {
+  if (!email || !email.trim()) {
     return false;
   }
-  return getAllowedEmails().includes(email.trim().toLowerCase());
+
+  const allowedEmails = getAllowedEmails();
+
+  // No allowlist configured: allow any account with a verified email.
+  if (allowedEmails.length === 0) {
+    return true;
+  }
+
+  // An explicitly configured allowlist still restricts access.
+  return allowedEmails.includes(email.trim().toLowerCase());
 }
 
-export function safeNextPath(value: string | null | undefined): string {
+export function safeNextPath(
+  value: string | null | undefined,
+): string {
   if (
     typeof value === "string" &&
     value.startsWith("/") &&
@@ -25,5 +40,6 @@ export function safeNextPath(value: string | null | undefined): string {
   ) {
     return value;
   }
+
   return "/dashboard";
 }
