@@ -1,10 +1,10 @@
 import { GeminiError, generateRawMetadata, type GeminiErrorCode } from "./gemini";
 import { getCandidates, recordKeyResult } from "./keyStore";
 
-// SERVER ONLY. Picks the CALLING USER's enabled saved keys (or, for the verified admin
-// only, the environment key), calls Gemini, and tries at most MAX_KEY_ATTEMPTS keys when
-// a key is rejected or rate-limited.
-// `userId` must come from the server-verified session, never from the request body.
+// SERVER ONLY. Picks the signed-in user's enabled saved keys (or the environment key for
+// a verified admin), calls Gemini, and tries at most MAX_KEY_ATTEMPTS keys when a key is
+// rejected or rate-limited.
+// Disabled keys are never returned by getCandidates(), so they are never used.
 
 const MAX_KEY_ATTEMPTS = 3;
 
@@ -20,6 +20,7 @@ const STATUS_BY_CODE: Record<GeminiErrorCode, number> = {
 };
 
 export type GeminiRunInput = {
+  /** Server-verified user ID from the session. Never from the browser. */
   userId: string;
   model: string;
   mimeType: string;
