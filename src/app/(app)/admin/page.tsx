@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
@@ -60,7 +60,7 @@ async function AdminContent() {
 
   const [overview, gemini] = await Promise.all([
     getAdminOverview(),
-    getCandidates("gemini", access.userId),
+    getCandidates(access.userId, "gemini"),
   ]);
   const storage = getStorageState();
   const geminiText = gemini.ok
