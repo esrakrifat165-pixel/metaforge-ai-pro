@@ -3,32 +3,16 @@ import Link from "next/link";
 import { EmptyState } from "../../../components/EmptyState";
 import { Icon } from "../../../components/Icons";
 import { NAV_ITEMS } from "../../../lib/navigation";
+import { getDashboardStatus } from "../../../lib/server/dashboardStatus";
 
 export const metadata: Metadata = {
   title: "Dashboard",
 };
 
-// These describe the project as it is right now. They become live checks
-// in later phases once providers, sign-in and the database exist.
-const SETUP_STATUS = [
-  {
-    label: "AI providers",
-    value: "Not configured",
-    detail: "The first provider is connected in Phase 2.",
-  },
-  {
-    label: "Sign-in",
-    value: "Not set up",
-    detail: "Google sign-in is added in Phase 5.",
-  },
-  {
-    label: "Database and history",
-    value: "Not connected",
-    detail: "Saved job history needs the Phase 5 database.",
-  },
-];
+export default async function DashboardPage() {
+  // Real checks, run on the server for the signed-in user. See dashboardStatus.ts.
+  const setupStatus = await getDashboardStatus();
 
-export default function DashboardPage() {
   const quickAccessItems = NAV_ITEMS.filter(
     (item) => item.href !== "/dashboard" && item.group !== "Account",
   );
@@ -39,8 +23,8 @@ export default function DashboardPage() {
         <span className="eyebrow">METAFORGE AI PRO</span>
         <h1>Dashboard</h1>
         <p>
-          A single place to run your stock content workflow. The tools below are
-          being built one phase at a time, and none of them process files yet.
+          A single place to run your stock content workflow. Use the cards below to open each
+          tool, and the status cards to see what is connected for your account right now.
         </p>
       </header>
 
@@ -49,13 +33,13 @@ export default function DashboardPage() {
           <h2 id="setup-heading" className="section-title">
             Setup status
           </h2>
-          <span className="section-note">What is connected right now</span>
+          <span className="section-note">Checked on the server for your account</span>
         </div>
         <div className="status-grid">
-          {SETUP_STATUS.map((entry) => (
-            <div key={entry.label} className="card status-card">
+          {setupStatus.map((entry) => (
+            <div key={entry.id} className="card status-card">
               <span className="status-label">{entry.label}</span>
-              <span className="status-pill">
+              <span className="status-pill" data-tone={entry.tone}>
                 <span className="status-dot" aria-hidden="true" />
                 {entry.value}
               </span>
@@ -70,7 +54,7 @@ export default function DashboardPage() {
           <h2 id="tools-heading" className="section-title">
             Quick access
           </h2>
-          <span className="section-note">{quickAccessItems.length} tools planned</span>
+          <span className="section-note">{quickAccessItems.length} tools</span>
         </div>
         <div className="tool-grid">
           {quickAccessItems.map((item) => (
@@ -80,7 +64,6 @@ export default function DashboardPage() {
               </span>
               <h3>{item.label}</h3>
               <p>{item.description}</p>
-              <span className="badge">Planned: {item.phase}</span>
             </Link>
           ))}
         </div>
@@ -95,8 +78,9 @@ export default function DashboardPage() {
           </div>
           <EmptyState
             icon="inbox"
-            title="No jobs yet"
-            description="Jobs will appear here after the Metadata Generator is built and history saving is connected (Phase 5)."
+            title="Saved results are in History"
+            description="Results from the Metadata Generator and Image to Prompt are saved to your own history. Open History to review or delete them."
+            action={{ href: "/history", label: "Open History" }}
           />
         </section>
 
@@ -108,8 +92,8 @@ export default function DashboardPage() {
           </div>
           <EmptyState
             icon="history"
-            title="No activity yet"
-            description="Activity will appear here once sign-in and the database are connected."
+            title="Activity is not tracked yet"
+            description="Account activity and usage are not recorded, so there is nothing to show here."
           />
         </section>
       </div>
