@@ -7,11 +7,10 @@ import { checkRateLimit } from "../../../lib/server/rateLimit";
 // Renders an EPS to a JPEG with Ghostscript. Needs Ghostscript installed on the server.
 // Hosted platforms such as Vercel do not include it. Access still goes through the
 // sign-in proxy, and the request must come from this site.
-
-const MAX_BYTES = 8 * 1024 * 1024;
-const TIMEOUT_MS = 30_000;
-const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
-
+  
+const MAX_BYTES = 100 * 1024 * 1024;
+const MAX_OUTPUT_BYTES = 100 * 1024 * 1024;
+const TIMEOUT_MS = 120_000;
 type GsOutcome = "ok" | "missing" | "timeout" | "failed";
 
 function reply(status: number, code: string, message: string): Response {
@@ -112,6 +111,141 @@ export async function POST(request: Request): Promise<Response> {
   const bytes = Buffer.from(await file.arrayBuffer());
   if (!looksLikeEps(bytes)) {
     return reply(400, "invalid_file", "This is not a valid EPS file.");
+  }
+
+  // Remote Linux Ghostscript service for Vercel.
+  const converterUrl = process.env.EPS_CONVERTER_URL?.trim();
+  const converterToken = process.env.EPS_CONVERTER_TOKEN?.trim();
+
+  if (converterUrl || converterToken) {
+    if (!converterUrl || !converterToken) {
+      return reply(
+        503,
+        "converter_not_configured",
+        "The EPS conversion service is not fully configured.",
+      );
+    }
+
+    let endpoint: URL;
+    try {
+      endpoint = new URL(converterUrl);
+      if (
+        endpoint.protocol !== "https:" ||
+        endpoint.username ||
+        endpoint.password ||
+        endpoint.search ||
+        endpoint.hash
+      ) {
+        throw new Error("Invalid converter URL");
+      }
+    } catch {
+      return reply(
+        503,
+        "converter_not_configured",
+        "The EPS conversion service URL is invalid.",
+      );
+    }
+
+    let remoteResponse: Response;
+
+    try {
+      const body = new FormData();
+      body.append(
+        "file",
+        new Blob([new Uint8Array(bytes)], {
+          type: "application/postscript",
+        }),
+        file.name || "upload.eps",
+      );
+
+      remoteResponse = await fetch(
+        `${endpoint.origin}${endpoint.pathname.replace(/\/+$/, "")}/convert`,
+        {
+          method: "POST",
+          headers: { "x-converter-token": converterToken },
+          body,
+          cache: "no-store",
+          signal: AbortSignal.timeout(28_000),
+        },
+      );
+    } catch {
+      return reply(
+        502,
+        "converter_unavailable",
+        "The EPS conversion service could not be reached. Please try again.",
+      );
+    }
+
+    if (!remoteResponse.ok) {
+      if (remoteResponse.status === 504) {
+        return reply(504, "timeout", "Converting this EPS took too long.");
+      }
+
+      if (remoteResponse.status === 413) {
+        return reply(413, "payload_too_large", "The EPS is too large.");
+      }
+
+      if (remoteResponse.status === 401) {
+        return reply(
+          502,
+          "converter_auth_failed",
+          "The EPS conversion service authentication failed. Check the server configuration.",
+        );
+      }
+
+      return reply(
+        422,
+        "conversion_failed",
+        "This EPS could not be converted. It may be damaged or use unsupported features.",
+      );
+    }
+
+    const contentType = remoteResponse.headers.get("content-type") ?? "";
+    const contentLength = Number(
+      remoteResponse.headers.get("content-length") ?? "0",
+    );
+
+    if (
+      !contentType.toLowerCase().startsWith("image/jpeg") ||
+      (contentLength > 0 && contentLength > MAX_OUTPUT_BYTES)
+    ) {
+      return reply(
+        502,
+        "invalid_converter_response",
+        "The conversion service returned an invalid image.",
+      );
+    }
+
+    let jpeg: Buffer;
+
+    try {
+      const outputBytes = await remoteResponse.arrayBuffer();
+
+      if (outputBytes.byteLength === 0 ||
+          outputBytes.byteLength > MAX_OUTPUT_BYTES) {
+        return reply(
+          422,
+          "conversion_failed",
+          "The converted image was empty or too large.",
+        );
+      }
+
+      jpeg = Buffer.from(outputBytes);
+    } catch {
+      return reply(
+        502,
+        "invalid_converter_response",
+        "The converted image could not be read.",
+      );
+    }
+
+    return new Response(new Uint8Array(jpeg), {
+      headers: {
+        "Content-Type": "image/jpeg",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
   }
 
   const dir = await mkdtemp(path.join(tmpdir(), "metaforge-eps-"));
