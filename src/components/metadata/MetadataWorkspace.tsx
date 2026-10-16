@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import {
@@ -276,17 +276,41 @@ export function MetadataWorkspace() {
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
-  // Ask the server whether a Gemini key exists. Only a yes/no answer comes back, never the key.
+  // Check the selected provider's key status.
   useEffect(() => {
     let ignore = false;
+
     async function checkKey() {
       try {
-        const response = await fetch("/api/provider-status", { cache: "no-store" });
+        const response = await fetch("/api/provider-status", {
+          cache: "no-store",
+        });
         const data: unknown = await response.json();
-        const configured = (data as { gemini?: { configured?: unknown } } | null)?.gemini
-          ?.configured;
+
+        const providers =
+          typeof data === "object" &&
+          data !== null &&
+          "providers" in data
+            ? (
+                data as {
+                  providers?: Record<
+                    string,
+                    { configured?: unknown }
+                  >;
+                }
+              ).providers
+            : undefined;
+
+        const configured = providers?.[providerId]?.configured;
+
         if (!ignore) {
-          setKeyStatus(configured === true ? "found" : configured === false ? "missing" : "unknown");
+          setKeyStatus(
+            configured === true
+              ? "found"
+              : configured === false
+                ? "missing"
+                : "unknown",
+          );
         }
       } catch {
         if (!ignore) {
@@ -294,11 +318,13 @@ export function MetadataWorkspace() {
         }
       }
     }
+
     void checkKey();
+
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [providerId]);
 
   function showNotice(kind: "info" | "success" | "error", text: string) {
     setNotice({ kind, text });
@@ -1440,3 +1466,4 @@ if (!isVector && !ACCEPTED_TYPES.includes(file.type)) {
     </div>
   );
 }
+
