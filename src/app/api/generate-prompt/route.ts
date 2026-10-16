@@ -1,3 +1,4 @@
+
 import { randomUUID } from "node:crypto";
 import { getAccess } from "../../../lib/auth/session";
 import {
@@ -9,6 +10,7 @@ import {
   isPromptStyleId,
   normalizePrompt,
 } from "../../../lib/prompt/generation";
+import type { ProviderId } from "../../../lib/providers/catalog";
 import { isKnownGeminiModel } from "../../../lib/providers/gemini-models";
 import { saveHistory } from "../../../lib/server/history";
 import { checkRateLimit } from "../../../lib/server/rateLimit";
@@ -19,53 +21,117 @@ import {
   jsonError,
   readUploadedImage,
 } from "../../../lib/server/requestUtils";
-import { runGeminiWithKeys } from "../../../lib/server/runGemini";
+import { runProviderWithKeys } from "../../../lib/server/runProvider";
 
 const RATE_LIMIT_PER_MINUTE = 120;
+
+const SUPPORTED_PROVIDERS = new Set<ProviderId>([
+  "gemini",
+  "openai",
+  "groq",
+  "anthropic",
+  "xai",
+]);
 
 export async function POST(request: Request): Promise<Response> {
   const requestId = randomUUID();
 
   if (!isSameOrigin(request)) {
-    return jsonError(403, "forbidden", "This request was not allowed.", false, requestId);
+    return jsonError(
+      403,
+      "forbidden",
+      "This request was not allowed.",
+      false,
+      requestId,
+    );
   }
 
-  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  const limit = checkRateLimit(`generate:${client}`, RATE_LIMIT_PER_MINUTE, 60_000);
+  const client =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+
+  const limit = checkRateLimit(
+    `generate:${client}`,
+    RATE_LIMIT_PER_MINUTE,
+    60_000,
+  );
+
   if (!limit.allowed) {
-    return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", true, requestId, {
-      "Retry-After": String(limit.retryAfterSeconds),
-    });
+    return jsonError(
+      429,
+      "rate_limited",
+      "Too many requests. Please wait a moment and try again.",
+      true,
+      requestId,
+      { "Retry-After": String(limit.retryAfterSeconds) },
+    );
   }
 
-  // The user id comes only from the server-verified session, never from the request.
+  // Only use the user ID from the verified server session.
   const access = await getAccess();
+
   if (!access.ok) {
-    return jsonError(access.status, access.code, access.message, access.status === 503, requestId);
+    return jsonError(
+      access.status,
+      access.code,
+      access.message,
+      access.status === 503,
+      requestId,
+    );
   }
 
   let form: FormData;
+
   try {
     form = await request.formData();
   } catch {
-    return jsonError(400, "invalid_request", "The upload could not be read.", false, requestId);
+    return jsonError(
+      400,
+      "invalid_request",
+      "The upload could not be read.",
+      false,
+      requestId,
+    );
   }
 
+  const rawProvider = formField(form, "provider") || "gemini";
   const model = formField(form, "model");
   const styleId = formField(form, "style");
   const detailId = formField(form, "detail");
 
-  if (formField(form, "provider") !== "gemini") {
-    return jsonError(400, "unsupported_provider", "Only Google Gemini is connected so far.", false, requestId);
+  if (!SUPPORTED_PROVIDERS.has(rawProvider as ProviderId)) {
+    return jsonError(
+      400,
+      "unsupported_provider",
+      "The selected provider is not supported.",
+      false,
+      requestId,
+    );
   }
-  if (!isKnownGeminiModel(model)) {
-    return jsonError(400, "unsupported_model", "That model is not in the supported list.", false, requestId);
+
+  const provider = rawProvider as ProviderId;
+
+  if (provider === "gemini" && !isKnownGeminiModel(model)) {
+    return jsonError(
+      400,
+      "unsupported_model",
+      "That Gemini model is not in the supported list.",
+      false,
+      requestId,
+    );
   }
+
   if (!isPromptStyleId(styleId) || !isPromptDetailId(detailId)) {
-    return jsonError(400, "invalid_request", "Unknown prompt style or detail level.", false, requestId);
+    return jsonError(
+      400,
+      "invalid_request",
+      "Unknown prompt style or detail level.",
+      false,
+      requestId,
+    );
   }
 
   const upload = await readUploadedImage(form, requestId);
+
   if (!upload.ok) {
     return upload.response;
   }
@@ -73,8 +139,9 @@ export async function POST(request: Request): Promise<Response> {
   const style = getPromptStyle(styleId);
   const detail = getPromptDetail(detailId);
 
-  const run = await runGeminiWithKeys({
+  const run = await runProviderWithKeys({
     userId: access.userId,
+    provider,
     model,
     mimeType: upload.mimeType,
     base64: Buffer.from(upload.bytes).toString("base64"),
@@ -90,29 +157,45 @@ export async function POST(request: Request): Promise<Response> {
       run.message,
       run.retryable,
       requestId,
-      run.retryAfterSeconds !== null ? { "Retry-After": String(run.retryAfterSeconds) } : undefined,
+      run.retryAfterSeconds !== null
+        ? { "Retry-After": String(run.retryAfterSeconds) }
+        : undefined,
     );
   }
 
   const normalized = normalizePrompt(run.raw, detail);
+
   if (!normalized.ok) {
-    return jsonError(502, "bad_response", `${normalized.message} Try again.`, true, requestId);
+    return jsonError(
+      502,
+      "bad_response",
+      `${normalized.message} Try again.`,
+      true,
+      requestId,
+    );
   }
 
   const saved = await saveHistory(access.userId, {
     kind: "prompt",
     fileName: cleanFileName(formField(form, "fileName")),
-    provider: "gemini",
+    provider,
     model,
     platform: null,
-    result: { prompt: normalized.prompt, style: style.id, detail: detail.id },
+    result: {
+      prompt: normalized.prompt,
+      style: style.id,
+      detail: detail.id,
+    },
   });
 
   return Response.json(
     {
       success: true,
-      data: { prompt: normalized.prompt, warnings: normalized.warnings },
-      provider: "gemini",
+      data: {
+        prompt: normalized.prompt,
+        warnings: normalized.warnings,
+      },
+      provider,
       model,
       saved,
       requestId,

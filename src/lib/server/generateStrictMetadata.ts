@@ -1,18 +1,22 @@
+﻿
 import {
   buildStrictPrompt,
   buildStrictSchema,
   validateStrict,
   type StrictData,
 } from "../metadata/strict";
-import { runGeminiWithKeys } from "./runGemini";
+import { runProviderWithKeys } from "./runProvider";
+import type { ProviderId } from "../providers/catalog";
 
-// SERVER ONLY. At most MAX_ATTEMPTS model calls per image. Never pads or fakes keywords.
-// `userId` must be the server-verified id from getAccess(). It decides whose saved keys are used.
-
+// Maximum validation attempts per image.
 const MAX_ATTEMPTS = 3;
 
 export type StrictOutcome =
-  | { ok: true; data: StrictData; warnings: string[] }
+  | {
+      ok: true;
+      data: StrictData;
+      warnings: string[];
+    }
   | {
       ok: false;
       status: number;
@@ -24,16 +28,19 @@ export type StrictOutcome =
 
 export async function generateStrictMetadata(input: {
   userId: string;
+  provider?: ProviderId;
   model: string;
   mimeType: string;
   base64: string;
   count: number;
 }): Promise<StrictOutcome> {
+  const provider = input.provider ?? "gemini";
   let problems: string[] = [];
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    const run = await runGeminiWithKeys({
+    const run = await runProviderWithKeys({
       userId: input.userId,
+      provider,
       model: input.model,
       mimeType: input.mimeType,
       base64: input.base64,
@@ -54,11 +61,23 @@ export async function generateStrictMetadata(input: {
     }
 
     const checked = validateStrict(run.raw, input.count);
+
     if (checked.ok) {
       const warnings =
-        attempt > 1 ? [...checked.warnings, `Needed ${attempt} attempts to meet the rules.`] : checked.warnings;
-      return { ok: true, data: checked.data, warnings };
+        attempt > 1
+          ? [
+              ...checked.warnings,
+              `Needed ${attempt} attempts to meet the metadata rules.`,
+            ]
+          : checked.warnings;
+
+      return {
+        ok: true,
+        data: checked.data,
+        warnings,
+      };
     }
+
     problems = checked.problems;
   }
 
@@ -66,7 +85,9 @@ export async function generateStrictMetadata(input: {
     ok: false,
     status: 502,
     code: "validation_failed",
-    message: `The model could not meet the metadata rules after ${MAX_ATTEMPTS} attempts: ${problems.join(" ")}`,
+    message:
+      `The model could not meet the metadata rules after ${MAX_ATTEMPTS} attempts: ` +
+      problems.join(" "),
     retryable: true,
     retryAfterSeconds: null,
   };

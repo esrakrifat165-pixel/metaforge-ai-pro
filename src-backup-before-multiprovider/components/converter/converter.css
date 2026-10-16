@@ -1,0 +1,58 @@
+/* AI/EPS-to-JPG Converter. Every class starts with "cv-". Uses the app's theme variables. */
+
+.cv-grid { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.cv-side { display: grid; gap: 16px; }
+.cv-block, .cv-main { display: grid; gap: 12px; min-width: 0; }
+.cv-hint { font-size: 0.82rem; color: var(--text-muted); overflow-wrap: anywhere; }
+.cv-error { font-size: 0.85rem; color: var(--warn); overflow-wrap: anywhere; }
+
+.cv-notice {
+  padding: 9px 14px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface-hover); font-size: 0.88rem; overflow-wrap: anywhere;
+}
+.cv-notice[data-kind="success"] { border-color: color-mix(in srgb, #16a34a 65%, var(--border)); }
+.cv-notice[data-kind="error"] { border-color: color-mix(in srgb, #ef4444 65%, var(--border)); }
+
+.cv-drop {
+  display: grid; justify-items: center; gap: 8px; padding: 22px 12px; text-align: center;
+  border: 1px dashed var(--border); border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+.cv-drop[data-dragging="true"] { border-color: var(--accent); background: var(--surface-hover); }
+
+.cv-field { display: grid; gap: 6px; min-width: 0; }
+.cv-field label { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
+.cv-field input, .cv-field select {
+  width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font: inherit; font-size: 0.9rem;
+}
+.cv-field input[type="color"] { height: 40px; padding: 2px; }
+.cv-field input[type="range"] { padding: 0; }
+.cv-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.cv-check { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; }
+
+.cv-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.cv-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cv-actions .button:disabled, .cv-row-actions .button:disabled { opacity: 0.5; }
+
+.cv-list { list-style: none; display: grid; gap: 10px; margin: 0; padding: 0; }
+.cv-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; align-items: center;
+  padding: 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface);
+}
+.cv-row-main { display: grid; gap: 3px; min-width: 0; }
+.cv-name { overflow-wrap: anywhere; }
+.cv-row-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.cv-row-actions .button { padding: 5px 12px; font-size: 0.82rem; }
+
+.cv-badge {
+  justify-self: end; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--border);
+  font-size: 0.75rem; font-weight: 600; color: var(--text-muted);
+}
+.cv-badge[data-status="done"] { border-color: color-mix(in srgb, #16a34a 65%, var(--border)); color: var(--text); }
+.cv-badge[data-status="failed"] { border-color: color-mix(in srgb, #ef4444 65%, var(--border)); color: var(--text); }
+.cv-badge[data-status="processing"], .cv-badge[data-status="queued"] {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); color: var(--text);
+}
+
+@media (max-width: 960px) { .cv-grid { grid-template-columns: minmax(0, 1fr); } }

@@ -1,3 +1,4 @@
+
 import { randomUUID } from "node:crypto";
 import { getAccess } from "../../../lib/auth/session";
 import {
@@ -5,6 +6,7 @@ import {
   getPlatformProfile,
   isPlatformId,
 } from "../../../lib/platforms/profiles";
+import type { ProviderId } from "../../../lib/providers/catalog";
 import { isKnownGeminiModel } from "../../../lib/providers/gemini-models";
 import { generateStrictMetadata } from "../../../lib/server/generateStrictMetadata";
 import { saveHistory } from "../../../lib/server/history";
@@ -19,52 +21,125 @@ import {
 
 const RATE_LIMIT_PER_MINUTE = 120;
 
+const SUPPORTED_PROVIDERS = new Set<ProviderId>([
+  "gemini",
+  "openai",
+  "groq",
+  "anthropic",
+  "xai",
+]);
+
 export async function POST(request: Request): Promise<Response> {
   const requestId = randomUUID();
 
   if (!isSameOrigin(request)) {
-    return jsonError(403, "forbidden", "This request was not allowed.", false, requestId);
+    return jsonError(
+      403,
+      "forbidden",
+      "This request was not allowed.",
+      false,
+      requestId,
+    );
   }
 
-  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  const limit = checkRateLimit(`generate:${client}`, RATE_LIMIT_PER_MINUTE, 60_000);
+  const client =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+
+  const limit = checkRateLimit(
+    `generate:${client}`,
+    RATE_LIMIT_PER_MINUTE,
+    60_000,
+  );
+
   if (!limit.allowed) {
-    return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", true, requestId, {
-      "Retry-After": String(limit.retryAfterSeconds),
-    });
+    return jsonError(
+      429,
+      "rate_limited",
+      "Too many requests. Please wait a moment and try again.",
+      true,
+      requestId,
+      { "Retry-After": String(limit.retryAfterSeconds) },
+    );
   }
 
-  // The user id comes only from the server-verified session, never from the request.
+  // Always use the server-verified session user.
   const access = await getAccess();
+
   if (!access.ok) {
-    return jsonError(access.status, access.code, access.message, access.status === 503, requestId);
+    return jsonError(
+      access.status,
+      access.code,
+      access.message,
+      access.status === 503,
+      requestId,
+    );
   }
 
   let form: FormData;
+
   try {
     form = await request.formData();
   } catch {
-    return jsonError(400, "invalid_request", "The upload could not be read.", false, requestId);
+    return jsonError(
+      400,
+      "invalid_request",
+      "The upload could not be read.",
+      false,
+      requestId,
+    );
   }
 
+  const rawProvider = formField(form, "provider") || "gemini";
   const model = formField(form, "model");
   const platform = formField(form, "platform");
   const requested = Number(formField(form, "keywordCount"));
 
-  if (formField(form, "provider") !== "gemini") {
-    return jsonError(400, "unsupported_provider", "Only Google Gemini is connected so far.", false, requestId);
+  if (!SUPPORTED_PROVIDERS.has(rawProvider as ProviderId)) {
+    return jsonError(
+      400,
+      "unsupported_provider",
+      "The selected provider is not supported.",
+      false,
+      requestId,
+    );
   }
-  if (!isKnownGeminiModel(model)) {
-    return jsonError(400, "unsupported_model", "That model is not in the supported list.", false, requestId);
+
+  const provider = rawProvider as ProviderId;
+
+  // Gemini model validation is retained.
+  // Other providers must be validated by their own model catalog before use.
+  if (provider === "gemini" && !isKnownGeminiModel(model)) {
+    return jsonError(
+      400,
+      "unsupported_model",
+      "That Gemini model is not in the supported list.",
+      false,
+      requestId,
+    );
   }
+
   if (!isPlatformId(platform)) {
-    return jsonError(400, "invalid_request", "Unknown platform.", false, requestId);
+    return jsonError(
+      400,
+      "invalid_request",
+      "Unknown platform.",
+      false,
+      requestId,
+    );
   }
+
   if (!Number.isInteger(requested) || requested < 1 || requested > 50) {
-    return jsonError(400, "invalid_request", "The keyword count must be a whole number from 1 to 50.", false, requestId);
+    return jsonError(
+      400,
+      "invalid_request",
+      "The keyword count must be a whole number from 1 to 50.",
+      false,
+      requestId,
+    );
   }
 
   const upload = await readUploadedImage(form, requestId);
+
   if (!upload.ok) {
     return upload.response;
   }
@@ -74,6 +149,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const generated = await generateStrictMetadata({
     userId: access.userId,
+    provider,
     model,
     mimeType: upload.mimeType,
     base64: Buffer.from(upload.bytes).toString("base64"),
@@ -99,7 +175,7 @@ export async function POST(request: Request): Promise<Response> {
   const saved = await saveHistory(access.userId, {
     kind: "metadata",
     fileName: cleanFileName(formField(form, "fileName")),
-    provider: "gemini",
+    provider,
     model,
     platform: profile.id,
     result: { title, description, keywords, warnings },
@@ -111,11 +187,11 @@ export async function POST(request: Request): Promise<Response> {
       data: {
         title,
         description,
-        keywords: keywords.join(", "), // CHECK: use `keywords` (array) if the UI expects an array
+        keywords: keywords.join(", "),
         warnings,
       },
       keywordTarget: count,
-      provider: "gemini",
+      provider,
       model,
       platform: profile.id,
       saved,

@@ -1,11 +1,17 @@
+
 import { getAccess } from "../../../lib/auth/session";
+import type { ProviderId } from "../../../lib/providers/catalog";
 import { getCandidates } from "../../../lib/server/keyStore";
 
-// Returns only yes/no for the SIGNED-IN user. Never returns a key, a secret, a key id,
-// a label, or anything about another user's keys.
-// The user id comes only from the server-verified session (getAccess), never from the request.
-
 const NO_STORE = { "Cache-Control": "no-store" };
+
+const PROVIDER_IDS: ProviderId[] = [
+  "gemini",
+  "openai",
+  "groq",
+  "anthropic",
+  "xai",
+];
 
 export async function GET(): Promise<Response> {
   const access = await getAccess();
@@ -16,17 +22,41 @@ export async function GET(): Promise<Response> {
         success: false,
         code: access.code,
         message: access.message,
-        gemini: { configured: false },
+        providers: {
+          gemini: { configured: false },
+          openai: { configured: false },
+          groq: { configured: false },
+          anthropic: { configured: false },
+          xai: { configured: false },
+        },
       },
-      { status: access.status, headers: NO_STORE },
+      {
+        status: access.status,
+        headers: NO_STORE,
+      },
     );
   }
 
-  const result = await getCandidates(access.userId, "gemini");
+  const entries = await Promise.all(
+    PROVIDER_IDS.map(async (provider) => {
+      const result = await getCandidates(access.userId, provider);
 
-  // "All keys disabled" still counts as configured here, so the generators let the
-  // request through and the server answers with the precise reason.
-  const configured = result.ok || result.code === "no_enabled_key";
+      // No key and all keys disabled are distinct states.
+      // Both are safe to expose as a boolean status only.
+      const configured =
+        result.ok || result.code === "no_enabled_key";
 
-  return Response.json({ gemini: { configured } }, { headers: NO_STORE });
+      return [provider, { configured }] as const;
+    }),
+  );
+
+  return Response.json(
+    {
+      success: true,
+      providers: Object.fromEntries(entries),
+    },
+    {
+      headers: NO_STORE,
+    },
+  );
 }

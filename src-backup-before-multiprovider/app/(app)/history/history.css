@@ -1,0 +1,163 @@
+/* History page. Every class starts with "hs-". Uses the app's theme variables. */
+
+.hs-filters {
+  display: flex;
+  gap: 10px;
+  padding: 2px;
+  overflow-x: auto;
+}
+
+.hs-filter {
+  flex: none;
+  padding: 9px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.hs-filter:hover {
+  background: var(--surface-hover);
+}
+
+.hs-filter[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--grad-strong);
+  color: #ffffff;
+}
+
+.hs-loading {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.hs-error {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+}
+
+.hs-message {
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  font-size: 0.85rem;
+}
+
+.hs-message[data-kind="success"] {
+  border-color: color-mix(in srgb, #16a34a 65%, var(--border));
+}
+
+.hs-message[data-kind="error"] {
+  border-color: color-mix(in srgb, #ef4444 65%, var(--border));
+}
+
+.hs-list {
+  list-style: none;
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+}
+
+.hs-row {
+  display: grid;
+  gap: 12px;
+}
+
+.hs-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.hs-row-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.hs-name {
+  overflow-wrap: anywhere;
+}
+
+.hs-meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.hs-row-actions,
+.hs-confirm,
+.hs-field-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hs-confirm {
+  font-size: 0.85rem;
+}
+
+.hs-danger {
+  border-color: transparent;
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.hs-danger:hover {
+  background: #dc2626;
+  filter: brightness(1.1);
+}
+
+.hs-detail {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.hs-field {
+  display: grid;
+  gap: 6px;
+}
+
+.hs-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hs-value {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 55%, var(--surface));
+  font-size: 0.88rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.hs-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.hs-pager .button:disabled,
+.hs-row .button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

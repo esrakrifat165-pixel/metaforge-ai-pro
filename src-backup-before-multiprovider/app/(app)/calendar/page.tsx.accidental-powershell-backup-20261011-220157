@@ -1,0 +1,24 @@
+
+Set-Location "C:\Projects\metaforge-ai-pro\metaforge-web"
+
+$Files = @(
+    "src\app\(app)\calendar\page.tsx",
+    "src\components\calendar\calendarData.ts"
+)
+
+foreach ($File in $Files) {
+    $Directory = Split-Path -Parent $File
+
+    if (-not (Test-Path -LiteralPath $Directory)) {
+        New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+    }
+
+    if (-not (Test-Path -LiteralPath $File)) {
+        New-Item -ItemType File -Path $File -Force | Out-Null
+        Write-Host "Created: $File" -ForegroundColor Yellow
+    }
+}
+
+code --reuse-window `
+    "src\app\(app)\calendar\page.tsx" `
+    "src\components\calendar\calendarData.ts"

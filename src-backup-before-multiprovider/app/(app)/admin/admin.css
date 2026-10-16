@@ -1,0 +1,44 @@
+/* Admin page. Every class starts with "ad-". Uses the app's theme variables. */
+
+.ad-ok {
+  color: var(--accent-text);
+}
+
+.ad-value {
+  font-size: 1.15rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.ad-scroll {
+  overflow-x: auto;
+}
+
+.ad-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.ad-table th,
+.ad-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.ad-table thead th {
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ad-table tbody th {
+  font-weight: 600;
+}
+
+.ad-table tbody tr:last-child th,
+.ad-table tbody tr:last-child td {
+  border-bottom: 0;
+}
