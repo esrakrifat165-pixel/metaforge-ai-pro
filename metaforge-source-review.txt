@@ -1,0 +1,4564 @@
+
+===== .backups\adobe-keywords-search-20261011-202007\src\app\(app)\[tool]\page.tsx =====
+
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { EmptyState } from "../../../components/EmptyState";
+import BackgroundRemoverWorkspace from "../../../components/background-remover/BackgroundRemoverWorkspace";
+import { NAV_ITEMS, getNavItemByHref, type NavItem } from "../../../lib/navigation";
+
+// Any address that is not in the list below shows a normal 404 page.
+
+type ToolPageProps = {
+  params: Promise<{ tool: string }>;
+};
+
+// /dashboard has its own page. /admin stays hidden until real admin checks exist.
+const EXCLUDED_HREFS = new Set(["/dashboard", "/admin"]);
+
+// This page only serves one-part addresses such as /history.
+// Two-part addresses such as /settings/api-keys have their own page folders.
+function isSingleSegment(href: string): boolean {
+  return href.indexOf("/", 1) === -1;
+}
+
+function getPlaceholderItem(slug: string): NavItem | undefined {
+  const item = getNavItemByHref(`/${slug}`);
+  if (!item || EXCLUDED_HREFS.has(item.href) || !isSingleSegment(item.href)) {
+    return undefined;
+  }
+  return item;
+}
+
+export function generateStaticParams() {
+  return NAV_ITEMS.filter(
+    (item) => !EXCLUDED_HREFS.has(item.href) && isSingleSegment(item.href),
+  ).map((item) => ({
+    tool: item.href.slice(1),
+  }));
+}
+
+export async function generateMetadata({ params }: ToolPageProps): Promise<Metadata> {
+  const { tool } = await params;
+  const item = getPlaceholderItem(tool);
+  return { title: item ? item.label : "Page not found" };
+}
+
+export default async function ToolPlaceholderPage({ params }: ToolPageProps) {
+  const { tool } = await params;
+  const item = getPlaceholderItem(tool);
+
+  if (!item) {
+    notFound();
+  }
+
+  if (item.href === "/background-remover") {
+    return (
+      <div className="page">
+        <header className="page-header">
+          <span className="eyebrow">Creative Tools</span>
+          <h1>{item.label}</h1>
+          <p>Remove image backgrounds and export transparent PNG files.</p>
+        </header>
+        <BackgroundRemoverWorkspace />
+      </div>
+    );
+  }
+  return (
+    <div className="page">
+      <header className="page-header">
+        <span className="eyebrow">Planned: {item.phase}</span>
+        <h1>{item.label}</h1>
+        <p>{item.description}</p>
+      </header>
+
+      <EmptyState
+        icon={item.icon}
+        title="Not available yet"
+        description={`${item.label} is planned for ${item.phase}. Nothing on this page processes data yet.`}
+        action={{ href: "/dashboard", label: "Back to dashboard" }}
+      />
+
+      {item.href === "/settings" ? (
+        <p className="section-note">
+          The light and dark theme switch in the top bar already works. Provider and
+          model settings arrive in later phases.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+===== .backups\adobe-keywords-search-20261011-203148\src\app\(app)\[tool]\page.tsx =====
+
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { EmptyState } from "../../../components/EmptyState";
+import BackgroundRemoverWorkspace from "../../../components/background-remover/BackgroundRemoverWorkspace";
+import AdobeKeywordsSearch from "../../../components/adobe-keywords-search/AdobeKeywordsSearch";
+import { NAV_ITEMS, getNavItemByHref, type NavItem } from "../../../lib/navigation";
+
+// METAFORGE-ADOBE-KEYWORDS-SEARCH
+// Any address that is not in the list below shows a normal 404 page.
+
+type ToolPageProps = {
+  params: Promise<{ tool: string }>;
+};
+
+// /dashboard has its own page. /admin stays hidden until real admin checks exist.
+const EXCLUDED_HREFS = new Set(["/dashboard", "/admin"]);
+
+// This page only serves one-part addresses such as /history.
+// Two-part addresses such as /settings/api-keys have their own page folders.
+function isSingleSegment(href: string): boolean {
+  return href.indexOf("/", 1) === -1;
+}
+
+function getPlaceholderItem(slug: string): NavItem | undefined {
+  const item = getNavItemByHref(`/${slug}`);
+  if (!item || EXCLUDED_HREFS.has(item.href) || !isSingleSegment(item.href)) {
+    return undefined;
+  }
+  return item;
+}
+
+export function generateStaticParams() {
+  return NAV_ITEMS.filter(
+    (item) => !EXCLUDED_HREFS.has(item.href) && isSingleSegment(item.href),
+  ).map((item) => ({
+    tool: item.href.slice(1),
+  }));
+}
+
+export async function generateMetadata({ params }: ToolPageProps): Promise<Metadata> {
+  const { tool } = await params;
+  const item = getPlaceholderItem(tool);
+  return { title: item ? item.label : "Page not found" };
+}
+
+export default async function ToolPlaceholderPage({ params }: ToolPageProps) {
+  const { tool } = await params;
+  const item = getPlaceholderItem(tool);
+
+  if (!item) {
+    notFound();
+  }
+
+  if (item.href === "/adobe-keywords-search") {
+    return (
+      <div className="page">
+        <header className="page-header">
+          <span className="eyebrow">Adobe Stock Tools</span>
+          <h1>{item.label}</h1>
+          <p>Generate an Adobe Stock title, description and 50 unique keywords from an image.</p>
+        </header>
+        <AdobeKeywordsSearch />
+      </div>
+    );
+  }
+  if (item.href === "/background-remover") {
+    return (
+      <div className="page">
+        <header className="page-header">
+          <span className="eyebrow">Creative Tools</span>
+          <h1>{item.label}</h1>
+          <p>Remove image backgrounds and export transparent PNG files.</p>
+        </header>
+        <BackgroundRemoverWorkspace />
+      </div>
+    );
+  }
+  return (
+    <div className="page">
+      <header className="page-header">
+        <span className="eyebrow">Planned: {item.phase}</span>
+        <h1>{item.label}</h1>
+        <p>{item.description}</p>
+      </header>
+
+      <EmptyState
+        icon={item.icon}
+        title="Not available yet"
+        description={`${item.label} is planned for ${item.phase}. Nothing on this page processes data yet.`}
+        action={{ href: "/dashboard", label: "Back to dashboard" }}
+      />
+
+      {item.href === "/settings" ? (
+        <p className="section-note">
+          The light and dark theme switch in the top bar already works. Provider and
+          model settings arrive in later phases.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+
+===== .backups\adobe-keywords-search-20261011-203148\src\app\api\adobe-keywords-search\route.ts =====
+
+// METAFORGE-ADOBE-KEYWORDS-SEARCH
+import { randomUUID } from "node:crypto";
+import { isKnownGeminiModel } from "../../../lib/providers/gemini-models";
+import { generateStrictMetadata } from "../../../lib/server/generateStrictMetadata";
+import { getCurrentUser, saveHistory } from "../../../lib/server/history";
+import { checkRateLimit } from "../../../lib/server/rateLimit";
+import { cleanFileName, formField, isSameOrigin, jsonError, readUploadedImage } from "../../../lib/server/requestUtils";
+
+export async function POST(request: Request): Promise<Response> {
+  const requestId = randomUUID();
+  if (!isSameOrigin(request)) return jsonError(403, "forbidden", "This request was not allowed.", false, requestId);
+  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const limit = checkRateLimit(`adobe-keywords:${client}`, 30, 60_000);
+  if (!limit.allowed) return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", true, requestId, { "Retry-After": String(limit.retryAfterSeconds) });
+  const who = await getCurrentUser();
+  if (who.configured && !who.userId) return jsonError(401, "unauthenticated", "Please sign in.", false, requestId);
+  let form: FormData;
+  try { form = await request.formData(); } catch { return jsonError(400, "invalid_request", "The upload could not be read.", false, requestId); }
+  const model = formField(form, "model");
+  if (!isKnownGeminiModel(model)) return jsonError(400, "unsupported_model", "Choose a supported Gemini model.", false, requestId);
+  const upload = await readUploadedImage(form, requestId);
+  if (!upload.ok) return upload.response;
+  const generated = await generateStrictMetadata({ model, mimeType: upload.mimeType, base64: Buffer.from(upload.bytes).toString("base64"), count: 50 });
+  if (!generated.ok) return jsonError(generated.status, generated.code, generated.message, generated.retryable, requestId, generated.retryAfterSeconds !== null ? { "Retry-After": String(generated.retryAfterSeconds) } : undefined);
+  const seen = new Set<string>();
+  const keywords: string[] = [];
+  for (const raw of generated.data.keywords) { const word = raw.trim(); const key = word.toLocaleLowerCase(); if (word && !seen.has(key)) { seen.add(key); keywords.push(word); } }
+  if (keywords.length !== 50) return jsonError(502, "keyword_validation_failed", `The model returned ${keywords.length} unique keywords instead of 50. Please try again.`, true, requestId);
+  const data = { title: generated.data.title, description: generated.data.description, keywords, warnings: generated.warnings };
+  let saved = false;
+  if (who.userId) saved = await saveHistory(who.userId, { kind: "metadata", fileName: cleanFileName(formField(form, "fileName")), provider: "gemini", model, platform: "adobe-stock", result: data });
+  return Response.json({ success: true, data, provider: "gemini", model, saved, requestId }, { headers: { "Cache-Control": "no-store" } });
+}
+
+
+===== metaforge-audit\package.json =====
+
+{
+  "name": "metaforge-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.3",
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+
+===== metaforge-audit\src\app\(app)\[tool]\page.tsx =====
+
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { EmptyState } from "../../../components/EmptyState";
+import { NAV_ITEMS, getNavItemByHref, type NavItem } from "../../../lib/navigation";
+
+// Any address that is not in the list below shows a normal 404 page.
+
+type ToolPageProps = {
+  params: Promise<{ tool: string }>;
+};
+
+// /dashboard has its own page. /admin stays hidden until real admin checks exist.
+const EXCLUDED_HREFS = new Set(["/dashboard", "/admin"]);
+
+// This page only serves one-part addresses such as /history.
+// Two-part addresses such as /settings/api-keys have their own page folders.
+function isSingleSegment(href: string): boolean {
+  return href.indexOf("/", 1) === -1;
+}
+
+function getPlaceholderItem(slug: string): NavItem | undefined {
+  const item = getNavItemByHref(`/${slug}`);
+  if (!item || EXCLUDED_HREFS.has(item.href) || !isSingleSegment(item.href)) {
+    return undefined;
+  }
+  return item;
+}
+
+export function generateStaticParams() {
+  return NAV_ITEMS.filter(
+    (item) => !EXCLUDED_HREFS.has(item.href) && isSingleSegment(item.href),
+  ).map((item) => ({
+    tool: item.href.slice(1),
+  }));
+}
+
+export async function generateMetadata({ params }: ToolPageProps): Promise<Metadata> {
+  const { tool } = await params;
+  const item = getPlaceholderItem(tool);
+  return { title: item ? item.label : "Page not found" };
+}
+
+export default async function ToolPlaceholderPage({ params }: ToolPageProps) {
+  const { tool } = await params;
+  const item = getPlaceholderItem(tool);
+
+  if (!item) {
+    notFound();
+  }
+
+  return (
+    <div className="page">
+      <header className="page-header">
+        <span className="eyebrow">Planned: {item.phase}</span>
+        <h1>{item.label}</h1>
+        <p>{item.description}</p>
+      </header>
+
+      <EmptyState
+        icon={item.icon}
+        title="Not available yet"
+        description={`${item.label} is planned for ${item.phase}. Nothing on this page processes data yet.`}
+        action={{ href: "/dashboard", label: "Back to dashboard" }}
+      />
+
+      {item.href === "/settings" ? (
+        <p className="section-note">
+          The light and dark theme switch in the top bar already works. Provider and
+          model settings arrive in later phases.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+===== metaforge-audit\src\app\(app)\admin\page.tsx =====
+
+import type { Metadata } from "next";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { EmptyState } from "../../../components/EmptyState";
+import { getAllowedEmails } from "../../../lib/auth/guards";
+import { getAccess } from "../../../lib/auth/session";
+import type { PublicKey } from "../../../lib/keys/shared";
+import { MAX_KEYS_PER_PROVIDER, PROVIDERS } from "../../../lib/providers/catalog";
+import { getCandidates, getStorageState, listKeys } from "../../../lib/server/keyStore";
+import "./admin.css";
+
+export const metadata: Metadata = {
+  title: "Admin",
+};
+
+export default async function AdminPage() {
+  const access = await getAccess();
+
+  if (!access.ok) {
+    if (access.status === 401 || access.code === "not_allowed") {
+      redirect("/login");
+    }
+    return (
+      <div className="page">
+        <EmptyState
+          icon="admin"
+          title="Admin panel unavailable"
+          description={`${access.message} The admin panel needs sign-in and the profiles table to check who is an administrator.`}
+          action={{ href: "/dashboard", label: "Back to dashboard" }}
+        />
+      </div>
+    );
+  }
+
+  if (access.role !== "admin") {
+    return (
+      <div className="page">
+        <EmptyState
+          icon="admin"
+          title="Admins only"
+          description="Your account does not have the admin role. Only an administrator can open this page."
+          action={{ href: "/dashboard", label: "Back to dashboard" }}
+        />
+      </div>
+    );
+  }
+
+  const storage = getStorageState();
+  let keys: PublicKey[] = [];
+  let keysError: string | null = null;
+
+  if (storage.state === "ready") {
+    try {
+      keys = await listKeys();
+    } catch {
+      keysError =
+        "The saved keys could not be read. Check that the api_keys SQL was run and that SUPABASE_SERVICE_ROLE_KEY is correct.";
+    }
+  }
+
+  // Only the yes/no result and its source are used. No key value is ever shown.
+  const gemini = await getCandidates("gemini");
+  const geminiText = gemini.ok
+    ? gemini.source === "store"
+      ? "Available (saved key)"
+      : "Available (environment key)"
+    : gemini.message;
+
+  const keyCountsKnown = storage.state === "ready" && keysError === null;
+
+  return (
+    <div className="page">
+      <header className="page-header">
+        <span className="eyebrow">Administration</span>
+        <h1>Admin Control Panel</h1>
+        <p>
+          Real status only. If something is not measured yet, it says so instead of showing a
+          made-up number.
+        </p>
+      </header>
+
+      <section aria-labelledby="ad-session-heading">
+        <div className="section-head">
+          <h2 id="ad-session-heading" className="section-title">
+            Your session
+          </h2>
+        </div>
+        <div className="status-grid">
+          <div className="card status-card">
+            <span className="status-label">Signed in as</span>
+            <span className="ad-value">{access.email}</span>
+            <span className="status-detail">Confirmed by Supabase on the server.</span>
+          </div>
+          <div className="card status-card">
+            <span className="status-label">Role</span>
+            <span className="status-pill ad-ok">
+              <span className="status-dot" aria-hidden="true" />
+              Administrator
+            </span>
+            <span className="status-detail">Read from the profiles table. Browsers cannot change it.</span>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="ad-setup-heading">
+        <div className="section-head">
+          <h2 id="ad-setup-heading" className="section-title">
+            Setup status
+          </h2>
+        </div>
+        <div className="status-grid">
+          <div className="card status-card">
+            <span className="status-label">Allowed accounts</span>
+            <span className="ad-value">{getAllowedEmails().length}</span>
+            <span className="status-detail">Emails in ALLOWED_EMAILS who may sign in.</span>
+          </div>
+          <div className="card status-card">
+            <span className="status-label">Key storage</span>
+            <span className={`status-pill ${storage.state === "ready" ? "ad-ok" : ""}`}>
+              <span className="status-dot" aria-hidden="true" />
+              {storage.state === "ready" ? "Ready" : "Not ready"}
+            </span>
+            <span className="status-detail">{keysError ?? storage.message}</span>
+          </div>
+          <div className="card status-card">
+            <span className="status-label">Gemini key for generation</span>
+            <span className={`status-pill ${gemini.ok ? "ad-ok" : ""}`}>
+              <span className="status-dot" aria-hidden="true" />
+              {gemini.ok ? "Available" : "Not available"}
+            </span>
+            <span className="status-detail">{geminiText}</span>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="ad-providers-heading">
+        <div className="section-head">
+          <h2 id="ad-providers-heading" className="section-title">
+            AI provider keys
+          </h2>
+          <Link href="/settings/api-keys" className="button">
+            Open API Key Manager
+          </Link>
+        </div>
+        <div className="card ad-scroll">
+          <table className="ad-table">
+            <thead>
+              <tr>
+                <th scope="col">Provider</th>
+                <th scope="col">Saved keys</th>
+                <th scope="col">Enabled</th>
+                <th scope="col">Used by tools</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PROVIDERS.map((provider) => {
+                const mine = keys.filter((key) => key.provider === provider.id);
+                return (
+                  <tr key={provider.id}>
+                    <th scope="row">{provider.name}</th>
+                    <td>
+                      {keyCountsKnown ? `${mine.length} / ${MAX_KEYS_PER_PROVIDER}` : "Unknown"}
+                    </td>
+                    <td>
+                      {keyCountsKnown ? mine.filter((key) => key.enabled).length : "Unknown"}
+                    </td>
+                    <td>{provider.id === "gemini" ? "Metadata Generator" : "Not connected yet"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="section-note">
+          Counts come from the saved keys. A saved key is not proof that it works. The key manager
+          shows what the last real request did.
+        </p>
+      </section>
+
+      <section aria-labelledby="ad-data-heading">
+        <div className="section-head">
+          <h2 id="ad-data-heading" className="section-title">
+            Jobs and usage
+          </h2>
+        </div>
+        <EmptyState
+          icon="history"
+          title="No data yet"
+          description="Job history is not recorded yet, so there are no job counts, errors or usage figures to show."
+        />
+      </section>
+    </div>
+  );
+}
+
+===== metaforge-audit\src\app\(app)\dashboard\page.tsx =====
+
+import type { Metadata } from "next";
+import Link from "next/link";
+import { EmptyState } from "../../../components/EmptyState";
+import { Icon } from "../../../components/Icons";
+import { NAV_ITEMS } from "../../../lib/navigation";
+
+export const metadata: Metadata = {
+  title: "Dashboard",
+};
+
+// These describe the project as it is right now. They become live checks
+// in later phases once providers, sign-in and the database exist.
+const SETUP_STATUS = [
+  {
+    label: "AI providers",
+    value: "Not configured",
+    detail: "The first provider is connected in Phase 2.",
+  },
+  {
+    label: "Sign-in",
+    value: "Not set up",
+    detail: "Google sign-in is added in Phase 5.",
+  },
+  {
+    label: "Database and history",
+    value: "Not connected",
+    detail: "Saved job history needs the Phase 5 database.",
+  },
+];
+
+export default function DashboardPage() {
+  const quickAccessItems = NAV_ITEMS.filter(
+    (item) => item.href !== "/dashboard" && item.group !== "Account",
+  );
+
+  return (
+    <div className="page">
+      <header className="page-header">
+        <span className="eyebrow">METAFORGE AI PRO</span>
+        <h1>Dashboard</h1>
+        <p>
+          A single place to run your stock content workflow. The tools below are
+          being built one phase at a time, and none of them process files yet.
+        </p>
+      </header>
+
+      <section aria-labelledby="setup-heading">
+        <div className="section-head">
+          <h2 id="setup-heading" className="section-title">
+            Setup status
+          </h2>
+          <span className="section-note">What is connected right now</span>
+        </div>
+        <div className="status-grid">
+          {SETUP_STATUS.map((entry) => (
+            <div key={entry.label} className="card status-card">
+              <span className="status-label">{entry.label}</span>
+              <span className="status-pill">
+                <span className="status-dot" aria-hidden="true" />
+                {entry.value}
+              </span>
+              <span className="status-detail">{entry.detail}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section aria-labelledby="tools-heading">
+        <div className="section-head">
+          <h2 id="tools-heading" className="section-title">
+            Quick access
+          </h2>
+          <span className="section-note">{quickAccessItems.length} tools planned</span>
+        </div>
+        <div className="tool-grid">
+          {quickAccessItems.map((item) => (
+            <Link key={item.href} href={item.href} className="tool-card">
+              <span className="tool-icon">
+                <Icon name={item.icon} />
+              </span>
+              <h3>{item.label}</h3>
+              <p>{item.description}</p>
+              <span className="badge">Planned: {item.phase}</span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <div className="two-col">
+        <section aria-labelledby="jobs-heading">
+          <div className="section-head">
+            <h2 id="jobs-heading" className="section-title">
+              Recent jobs
+            </h2>
+          </div>
+          <EmptyState
+            icon="inbox"
+            title="No jobs yet"
+            description="Jobs will appear here after the Metadata Generator is built and history saving is connected (Phase 5)."
+          />
+        </section>
+
+        <section aria-labelledby="activity-heading">
+          <div className="section-head">
+            <h2 id="activity-heading" className="section-title">
+              Recent activity
+            </h2>
+          </div>
+          <EmptyState
+            icon="history"
+            title="No activity yet"
+            description="Activity will appear here once sign-in and the database are connected."
+          />
+        </section>
+      </div>
+    </div>
+  );
+}
+
+===== metaforge-audit\src\app\(app)\history\page.tsx =====
+
+import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { EmptyState } from "../../../components/EmptyState";
+import { HistoryList } from "../../../components/history/HistoryList";
+import { getCurrentUser } from "../../../lib/server/history";
+import "./history.css";
+
+export const metadata: Metadata = {
+  title: "History",
+};
+
+export default async function HistoryPage() {
+  const who = await getCurrentUser();
+
+  if (!who.configured) {
+    return (
+      <div className="page">
+        <EmptyState
+          icon="history"
+          title="History needs sign-in and the database"
+          description="History is saved per signed-in user in Supabase. Sign-in and the database are not configured, so nothing is saved or shown here."
+          action={{ href: "/dashboard", label: "Back to dashboard" }}
+        />
+      </div>
+    );
+  }
+
+  if (!who.userId) {
+    redirect("/login");
+  }
+
+  return <HistoryList />;
+}
+
+===== metaforge-audit\src\app\(app)\image-to-prompt\page.tsx =====
+
+import type { Metadata } from "next";
+import { ImageToPromptWorkspace } from "../../../components/image-to-prompt/ImageToPromptWorkspace";
+import "../metadata/metadata.css";
+
+export const metadata: Metadata = {
+  title: "Image-to-Prompt",
+};
+
+export default function ImageToPromptPage() {
+  return <ImageToPromptWorkspace />;
+}
+
+===== metaforge-audit\src\app\(app)\metadata\page.tsx =====
+
+import type { Metadata } from "next";
+import { MetadataWorkspace } from "../../../components/metadata/MetadataWorkspace";
+import "./metadata.css";
+
+export const metadata: Metadata = {
+  title: "Metadata Generator",
+};
+
+export default function MetadataPage() {
+  return <MetadataWorkspace />;
+}
+
+===== metaforge-audit\src\app\(app)\settings\api-keys\page.tsx =====
+
+import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { ApiKeyManager } from "../../../../components/api-keys/ApiKeyManager";
+import { EmptyState } from "../../../../components/EmptyState";
+import { getAccess } from "../../../../lib/auth/session";
+import "./keys.css";
+
+export const metadata: Metadata = {
+  title: "API Key Manager",
+};
+
+export default async function ApiKeysPage() {
+  const access = await getAccess();
+
+  // Sign-in not configured (local development): keep the page usable as before.
+  if (!access.ok && access.code === "auth_not_configured") {
+    return <ApiKeyManager />;
+  }
+
+  if (!access.ok) {
+    if (access.status === 401 || access.code === "not_allowed") {
+      redirect("/login");
+    }
+    return (
+      <div className="page">
+        <EmptyState
+          icon="key"
+          title="API Key Manager unavailable"
+          description={access.message}
+          action={{ href: "/dashboard", label: "Back to dashboard" }}
+        />
+      </div>
+    );
+  }
+
+  if (access.role !== "admin") {
+    return (
+      <div className="page">
+        <EmptyState
+          icon="key"
+          title="Admins only"
+          description="Only an administrator can manage API keys."
+          action={{ href: "/dashboard", label: "Back to dashboard" }}
+        />
+      </div>
+    );
+  }
+
+  return <ApiKeyManager />;
+}
+
+===== metaforge-audit\src\app\api\api-keys\route.ts =====
+
+import { adminApiGuard } from "../../../lib/auth/session";
+import { MAX_KEYS_PER_PROVIDER, PROVIDERS, type ProviderId } from "../../../lib/providers/catalog";
+import { validateApiKey, validateLabel } from "../../../lib/keys/shared";
+import { addKey, getStorageState, listKeys, removeKey, setEnabled } from "../../../lib/server/keyStore";
+import { checkRateLimit } from "../../../lib/server/rateLimit";
+
+// Responses NEVER include a saved secret. Only masked values are returned.
+// Every request needs a signed-in admin (checked on the server).
+
+const ID_PATTERN = /^[0-9a-fA-F-]{36}$/;
+
+function reply(body: Record<string, unknown>, status = 200): Response {
+  return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+}
+
+function fail(status: number, code: string, message: string): Response {
+  return reply({ success: false, code, message }, status);
+}
+
+function isSameOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) {
+    return true;
+  }
+  try {
+    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+    return host !== null && new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+async function guard(request: Request): Promise<Response | null> {
+  if (!isSameOrigin(request)) {
+    return fail(403, "forbidden", "This request was not allowed.");
+  }
+  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const limit = checkRateLimit(`api-keys:${client}`, 120, 60_000);
+  if (!limit.allowed) {
+    return fail(429, "rate_limited", "Too many requests. Please wait a moment.");
+  }
+  return adminApiGuard();
+}
+
+async function readBody(request: Request): Promise<Record<string, unknown> | null> {
+  try {
+    const value: unknown = await request.json();
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function asProviderId(value: unknown): ProviderId | null {
+  return typeof value === "string" && PROVIDERS.some((provider) => provider.id === value)
+    ? (value as ProviderId)
+    : null;
+}
+
+export async function GET(request: Request): Promise<Response> {
+  const blocked = await guard(request);
+  if (blocked) {
+    return blocked;
+  }
+
+  const storage = getStorageState();
+  if (storage.state !== "ready") {
+    return reply({ success: true, storage, limit: MAX_KEYS_PER_PROVIDER, keys: [] });
+  }
+
+  try {
+    const keys = await listKeys();
+    return reply({ success: true, storage, limit: MAX_KEYS_PER_PROVIDER, keys });
+  } catch {
+    return reply({
+      success: true,
+      storage: {
+        state: "error",
+        message:
+          "The saved keys could not be read. Check that the api_keys SQL was run in Supabase and that SUPABASE_SERVICE_ROLE_KEY is correct.",
+      },
+      limit: MAX_KEYS_PER_PROVIDER,
+      keys: [],
+    });
+  }
+}
+
+export async function POST(request: Request): Promise<Response> {
+  const blocked = await guard(request);
+  if (blocked) {
+    return blocked;
+  }
+
+  const body = await readBody(request);
+  if (!body) {
+    return fail(400, "invalid_request", "The request could not be read.");
+  }
+
+  const provider = asProviderId(body.provider);
+  if (!provider) {
+    return fail(400, "invalid_request", "Unknown provider.");
+  }
+  if (typeof body.label !== "string" || typeof body.apiKey !== "string") {
+    return fail(400, "invalid_request", "A label and an API key are required.");
+  }
+
+  const problem = validateLabel(body.label) ?? validateApiKey(body.apiKey);
+  if (problem) {
+    return fail(400, "validation_failed", problem);
+  }
+
+  try {
+    const result = await addKey({
+      provider,
+      label: body.label.trim(),
+      apiKey: body.apiKey.trim(),
+    });
+    if (!result.ok) {
+      return fail(result.status, result.code, result.message);
+    }
+    return reply({ success: true, key: result.value }, 201);
+  } catch {
+    return fail(500, "storage_error", "The key could not be saved. Check the Supabase setup and try again.");
+  }
+}
+
+export async function PATCH(request: Request): Promise<Response> {
+  const blocked = await guard(request);
+  if (blocked) {
+    return blocked;
+  }
+
+  const body = await readBody(request);
+  if (!body || typeof body.id !== "string" || !ID_PATTERN.test(body.id) || typeof body.enabled !== "boolean") {
+    return fail(400, "invalid_request", "A key id and an enabled value are required.");
+  }
+
+  try {
+    const result = await setEnabled(body.id, body.enabled);
+    if (!result.ok) {
+      return fail(result.status, result.code, result.message);
+    }
+    return reply({ success: true, key: result.value });
+  } catch {
+    return fail(500, "storage_error", "The key could not be updated. Try again.");
+  }
+}
+
+export async function DELETE(request: Request): Promise<Response> {
+  const blocked = await guard(request);
+  if (blocked) {
+    return blocked;
+  }
+
+  const id = new URL(request.url).searchParams.get("id") ?? "";
+  if (!ID_PATTERN.test(id)) {
+    return fail(400, "invalid_request", "A valid key id is required.");
+  }
+
+  try {
+    const result = await removeKey(id);
+    if (!result.ok) {
+      return fail(result.status, result.code, result.message);
+    }
+    return reply({ success: true });
+  } catch {
+    return fail(500, "storage_error", "The key could not be removed. Try again.");
+  }
+}
+
+===== metaforge-audit\src\app\api\generate-metadata\route.ts =====
+
+import { randomUUID } from "node:crypto";
+import { buildPrompt, normalizeMetadata } from "../../../lib/metadata/generation";
+import {
+  effectiveKeywordCount,
+  getPlatformProfile,
+  isPlatformId,
+} from "../../../lib/platforms/profiles";
+import { isKnownGeminiModel } from "../../../lib/providers/gemini-models";
+import { getCurrentUser, saveHistory } from "../../../lib/server/history";
+import { checkRateLimit } from "../../../lib/server/rateLimit";
+import {
+  cleanFileName,
+  formField,
+  isSameOrigin,
+  jsonError,
+  readUploadedImage,
+} from "../../../lib/server/requestUtils";
+import { runGeminiWithKeys } from "../../../lib/server/runGemini";
+
+const RATE_LIMIT_PER_MINUTE = 120;
+
+export async function POST(request: Request): Promise<Response> {
+  const requestId = randomUUID();
+
+  if (!isSameOrigin(request)) {
+    return jsonError(403, "forbidden", "This request was not allowed.", false, requestId);
+  }
+
+  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const limit = checkRateLimit(`generate:${client}`, RATE_LIMIT_PER_MINUTE, 60_000);
+  if (!limit.allowed) {
+    return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", true, requestId, {
+      "Retry-After": String(limit.retryAfterSeconds),
+    });
+  }
+
+  const who = await getCurrentUser();
+  if (who.configured && !who.userId) {
+    return jsonError(401, "unauthenticated", "Please sign in.", false, requestId);
+  }
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return jsonError(400, "invalid_request", "The upload could not be read.", false, requestId);
+  }
+
+  const model = formField(form, "model");
+  const platform = formField(form, "platform");
+  const keywordCount = Number(formField(form, "keywordCount"));
+
+  if (formField(form, "provider") !== "gemini") {
+    return jsonError(400, "unsupported_provider", "Only Google Gemini is connected so far.", false, requestId);
+  }
+  if (!isKnownGeminiModel(model)) {
+    return jsonError(400, "unsupported_model", "That model is not in the supported list.", false, requestId);
+  }
+  if (!isPlatformId(platform)) {
+    return jsonError(400, "invalid_request", "Unknown platform.", false, requestId);
+  }
+  if (!Number.isInteger(keywordCount) || keywordCount < 1 || keywordCount > 50) {
+    return jsonError(400, "invalid_request", "The keyword count must be a whole number from 1 to 50.", false, requestId);
+  }
+
+  const upload = await readUploadedImage(form, requestId);
+  if (!upload.ok) {
+    return upload.response;
+  }
+
+  const profile = getPlatformProfile(platform);
+  const count = effectiveKeywordCount(profile, keywordCount);
+
+  const run = await runGeminiWithKeys({
+    model,
+    mimeType: upload.mimeType,
+    base64: Buffer.from(upload.bytes).toString("base64"),
+    prompt: buildPrompt(profile, count),
+    keywordMax: count,
+  });
+
+  if (!run.ok) {
+    return jsonError(
+      run.status,
+      run.code,
+      run.message,
+      run.retryable,
+      requestId,
+      run.retryAfterSeconds !== null ? { "Retry-After": String(run.retryAfterSeconds) } : undefined,
+    );
+  }
+
+  const normalized = normalizeMetadata(run.raw, profile, count);
+  if (!normalized.ok) {
+    return jsonError(502, "bad_response", `${normalized.message} Try again.`, true, requestId);
+  }
+
+  let saved = false;
+  if (who.userId) {
+    saved = await saveHistory(who.userId, {
+      kind: "metadata",
+      fileName: cleanFileName(formField(form, "fileName")),
+      provider: "gemini",
+      model,
+      platform: profile.id,
+      result: { ...normalized.data, warnings: normalized.warnings },
+    });
+  }
+
+  return Response.json(
+    {
+      success: true,
+      data: { ...normalized.data, warnings: normalized.warnings },
+      provider: "gemini",
+      model,
+      platform: profile.id,
+      saved,
+      requestId,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+===== metaforge-audit\src\app\api\generate-prompt\route.ts =====
+
+import { randomUUID } from "node:crypto";
+import {
+  buildPromptRequest,
+  buildPromptSchema,
+  getPromptDetail,
+  getPromptStyle,
+  isPromptDetailId,
+  isPromptStyleId,
+  normalizePrompt,
+} from "../../../lib/prompt/generation";
+import { isKnownGeminiModel } from "../../../lib/providers/gemini-models";
+import { getCurrentUser, saveHistory } from "../../../lib/server/history";
+import { checkRateLimit } from "../../../lib/server/rateLimit";
+import {
+  cleanFileName,
+  formField,
+  isSameOrigin,
+  jsonError,
+  readUploadedImage,
+} from "../../../lib/server/requestUtils";
+import { runGeminiWithKeys } from "../../../lib/server/runGemini";
+
+const RATE_LIMIT_PER_MINUTE = 120;
+
+export async function POST(request: Request): Promise<Response> {
+  const requestId = randomUUID();
+
+  if (!isSameOrigin(request)) {
+    return jsonError(403, "forbidden", "This request was not allowed.", false, requestId);
+  }
+
+  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const limit = checkRateLimit(`generate:${client}`, RATE_LIMIT_PER_MINUTE, 60_000);
+  if (!limit.allowed) {
+    return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", true, requestId, {
+      "Retry-After": String(limit.retryAfterSeconds),
+    });
+  }
+
+  const who = await getCurrentUser();
+  if (who.configured && !who.userId) {
+    return jsonError(401, "unauthenticated", "Please sign in.", false, requestId);
+  }
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return jsonError(400, "invalid_request", "The upload could not be read.", false, requestId);
+  }
+
+  const model = formField(form, "model");
+  const styleId = formField(form, "style");
+  const detailId = formField(form, "detail");
+
+  if (formField(form, "provider") !== "gemini") {
+    return jsonError(400, "unsupported_provider", "Only Google Gemini is connected so far.", false, requestId);
+  }
+  if (!isKnownGeminiModel(model)) {
+    return jsonError(400, "unsupported_model", "That model is not in the supported list.", false, requestId);
+  }
+  if (!isPromptStyleId(styleId) || !isPromptDetailId(detailId)) {
+    return jsonError(400, "invalid_request", "Unknown prompt style or detail level.", false, requestId);
+  }
+
+  const upload = await readUploadedImage(form, requestId);
+  if (!upload.ok) {
+    return upload.response;
+  }
+
+  const style = getPromptStyle(styleId);
+  const detail = getPromptDetail(detailId);
+
+  const run = await runGeminiWithKeys({
+    model,
+    mimeType: upload.mimeType,
+    base64: Buffer.from(upload.bytes).toString("base64"),
+    prompt: buildPromptRequest(style, detail),
+    schema: buildPromptSchema(),
+    keywordMax: 1,
+  });
+
+  if (!run.ok) {
+    return jsonError(
+      run.status,
+      run.code,
+      run.message,
+      run.retryable,
+      requestId,
+      run.retryAfterSeconds !== null ? { "Retry-After": String(run.retryAfterSeconds) } : undefined,
+    );
+  }
+
+  const normalized = normalizePrompt(run.raw, detail);
+  if (!normalized.ok) {
+    return jsonError(502, "bad_response", `${normalized.message} Try again.`, true, requestId);
+  }
+
+  let saved = false;
+  if (who.userId) {
+    saved = await saveHistory(who.userId, {
+      kind: "prompt",
+      fileName: cleanFileName(formField(form, "fileName")),
+      provider: "gemini",
+      model,
+      platform: null,
+      result: { prompt: normalized.prompt, style: style.id, detail: detail.id },
+    });
+  }
+
+  return Response.json(
+    {
+      success: true,
+      data: { prompt: normalized.prompt, warnings: normalized.warnings },
+      provider: "gemini",
+      model,
+      saved,
+      requestId,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+===== metaforge-audit\src\app\api\history\route.ts =====
+
+import { HISTORY_PAGE_SIZE, HistoryError, deleteHistory, getCurrentUser, listHistory, type HistoryKind } from "../../../lib/server/history";
+
+const ID_PATTERN = /^[0-9a-fA-F-]{36}$/;
+
+function reply(body: Record<string, unknown>, status = 200): Response {
+  return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+}
+
+function fail(status: number, code: string, message: string): Response {
+  return reply({ success: false, code, message }, status);
+}
+
+function isSameOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) {
+    return true;
+  }
+  try {
+    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+    return host === null ? true : new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+export async function GET(request: Request): Promise<Response> {
+  const who = await getCurrentUser();
+  if (!who.configured) {
+    return fail(503, "auth_not_configured", "History needs sign-in and the database, which are not configured.");
+  }
+  if (!who.userId) {
+    return fail(401, "unauthenticated", "Please sign in.");
+  }
+
+  const params = new URL(request.url).searchParams;
+  const page = Number(params.get("page") ?? "1");
+  if (!Number.isInteger(page) || page < 1 || page > 1000) {
+    return fail(400, "invalid_request", "Invalid page number.");
+  }
+  const kindParam = params.get("kind");
+  if (kindParam !== null && kindParam !== "metadata" && kindParam !== "prompt") {
+    return fail(400, "invalid_request", "Invalid history type.");
+  }
+  const kind: HistoryKind | null = kindParam;
+
+  try {
+    const { entries, total } = await listHistory(who.userId, { kind, page });
+    return reply({ success: true, entries, total, page, pageSize: HISTORY_PAGE_SIZE });
+  } catch (error) {
+    if (error instanceof HistoryError) {
+      return fail(500, "history_unavailable", "History could not be read. Check that the history SQL was run in Supabase.");
+    }
+    return fail(500, "internal_error", "Something went wrong. Please try again.");
+  }
+}
+
+export async function DELETE(request: Request): Promise<Response> {
+  if (!isSameOrigin(request)) {
+    return fail(403, "forbidden", "This request was not allowed.");
+  }
+
+  const who = await getCurrentUser();
+  if (!who.configured) {
+    return fail(503, "auth_not_configured", "History needs sign-in and the database, which are not configured.");
+  }
+  if (!who.userId) {
+    return fail(401, "unauthenticated", "Please sign in.");
+  }
+
+  const id = new URL(request.url).searchParams.get("id") ?? "";
+  if (!ID_PATTERN.test(id)) {
+    return fail(400, "invalid_request", "A valid entry id is required.");
+  }
+
+  try {
+    const removed = await deleteHistory(who.userId, id);
+    if (!removed) {
+      return fail(404, "not_found", "That entry no longer exists.");
+    }
+    return reply({ success: true });
+  } catch {
+    return fail(500, "history_unavailable", "The entry could not be deleted. Try again.");
+  }
+}
+
+===== metaforge-audit\src\app\api\provider-status\route.ts =====
+
+import { getCandidates } from "../../../lib/server/keyStore";
+
+// Returns only yes/no. Never returns a key.
+export async function GET(): Promise<Response> {
+  const result = await getCandidates("gemini");
+  // "All keys disabled" still counts as configured here, so the Metadata Generator lets the
+  // request through and the server answers with the precise reason.
+  const configured = result.ok || result.code === "no_enabled_key";
+  return Response.json({ gemini: { configured } }, { headers: { "Cache-Control": "no-store" } });
+}
+
+
+
+
+
+===== metaforge-audit\src\app\auth\callback\route.ts =====
+
+import { NextResponse } from "next/server";
+import { createClient } from "../../../lib/supabase/server";
+
+export async function GET(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+
+  if (url.searchParams.get("error") || !code) {
+    return NextResponse.redirect(`${url.origin}/login?error=cancelled`);
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) {
+    return NextResponse.redirect(`${url.origin}/login?error=oauth`);
+  }
+  // Fixed destination, so there is no open redirect.
+  return NextResponse.redirect(`${url.origin}/dashboard`);
+}
+
+===== metaforge-audit\src\app\auth\google\route.ts =====
+
+import { NextResponse } from "next/server";
+import { getSupabaseEnv } from "../../../lib/supabase/env";
+import { createClient } from "../../../lib/supabase/server";
+
+export async function POST(request: Request): Promise<Response> {
+  const origin = new URL(request.url).origin;
+
+  if (!getSupabaseEnv()) {
+    return NextResponse.redirect(`${origin}/login?error=not_configured`, 303);
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: `${origin}/auth/callback`,
+      queryParams: { prompt: "select_account" },
+    },
+  });
+
+  if (error || !data.url) {
+    return NextResponse.redirect(`${origin}/login?error=oauth`, 303);
+  }
+  return NextResponse.redirect(data.url, 303);
+}
+
+===== metaforge-audit\src\app\login\page.tsx =====
+
+import type { Metadata } from "next";
+import { Suspense } from "react";
+import { BrandMark } from "../../components/BrandMark";
+import { getSupabaseEnv } from "../../lib/supabase/env";
+
+export const metadata: Metadata = { title: "Sign in" };
+
+const MESSAGES: Record<string, string> = {
+  not_configured: "Sign-in is not configured on this server.",
+  cancelled: "Sign-in was cancelled or did not finish. Please try again.",
+  oauth: "Google sign-in failed. Please try again.",
+};
+
+async function LoginError({ params }: { params: Promise<{ error?: string }> }) {
+  const { error } = await params;
+  const text = error ? MESSAGES[error] : undefined;
+  return text ? <p role="alert">{text}</p> : null;
+}
+
+export default function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const configured = getSupabaseEnv() !== null;
+
+  return (
+    <div className="page">
+      <div
+        className="card"
+        style={{
+          maxWidth: 420,
+          margin: "10vh auto",
+          display: "grid",
+          gap: 16,
+          justifyItems: "center",
+          textAlign: "center",
+        }}
+      >
+        <BrandMark size={56} />
+        <h1>METAFORGE AI PRO</h1>
+        <p>Sign in to save your history and use your account.</p>
+        <Suspense fallback={null}>
+          <LoginError params={searchParams} />
+        </Suspense>
+        {configured ? (
+          <form action="/auth/google" method="post">
+            <button type="submit" className="button">
+              Continue with Google
+            </button>
+          </form>
+        ) : (
+          <p>Sign-in is not set up. The Supabase environment variables are missing.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+===== metaforge-audit\src\app\page.tsx =====
+
+import { redirect } from "next/navigation";
+
+export default function HomePage() {
+  redirect("/dashboard");
+}
+
+===== package.json =====
+
+{
+  "name": "metaforge-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@imgly/background-removal": "^1.7.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.3",
+    "ag-psd": "^31.0.3",
+    "jszip": "^3.10.2",
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+
+===== src\app\(app)\[tool]\page.tsx =====
+
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { EmptyState } from "../../../components/EmptyState";
+import BackgroundRemoverWorkspace from "../../../components/background-remover/BackgroundRemoverWorkspace";
+import AdobeKeywordsSearch from "../../../components/adobe-keywords-search/AdobeKeywordsSearch";
+import { NAV_ITEMS, getNavItemByHref, type NavItem } from "../../../lib/navigation";
+
+// METAFORGE-ADOBE-KEYWORDS-SEARCH
+// Any address that is not in the list below shows a normal 404 page.
+
+type ToolPageProps = {
+  params: Promise<{ tool: string }>;
+};
+
+// /dashboard has its own page. /admin stays hidden until real admin checks exist.
+const EXCLUDED_HREFS = new Set(["/dashboard", "/admin"]);
+
+// This page only serves one-part addresses such as /history.
+// Two-part addresses such as /settings/api-keys have their own page folders.
+function isSingleSegment(href: string): boolean {
+  return href.indexOf("/", 1) === -1;
+}
+
+function getPlaceholderItem(slug: string): NavItem | undefined {
+  const item = getNavItemByHref(`/${slug}`);
+  if (!item || EXCLUDED_HREFS.has(item.href) || !isSingleSegment(item.href)) {
+    return undefined;
+  }
+  return item;
+}
+
+export function generateStaticParams() {
+  return NAV_ITEMS.filter(
+    (item) => !EXCLUDED_HREFS.has(item.href) && isSingleSegment(item.href),
+  ).map((item) => ({
+    tool: item.href.slice(1),
+  }));
+}
+
+export async function generateMetadata({ params }: ToolPageProps): Promise<Metadata> {
+  const { tool } = await params;
+  const item = getPlaceholderItem(tool);
+  return { title: item ? item.label : "Page not found" };
+}
+
+export default async function ToolPlaceholderPage({ params }: ToolPageProps) {
+  const { tool } = await params;
+  const item = getPlaceholderItem(tool);
+
+  if (!item) {
+    notFound();
+  }
+
+  if (item.href === "/adobe-keywords-search" || item.href === "/keywords" || item.label.toLowerCase().includes("adobe keywords")) {
+    return (
+      <div className="page">
+        <header className="page-header">
+          <span className="eyebrow">Adobe Stock Tools</span>
+          <h1>{item.label}</h1>
+          <p>Generate an Adobe Stock title, description and 50 unique keywords from an image.</p>
+        </header>
+        <AdobeKeywordsSearch />
+      </div>
+    );
+  }
+  if (item.href === "/background-remover") {
+    return (
+      <div className="page">
+        <header className="page-header">
+          <span className="eyebrow">Creative Tools</span>
+          <h1>{item.label}</h1>
+          <p>Remove image backgrounds and export transparent PNG files.</p>
+        </header>
+        <BackgroundRemoverWorkspace />
+      </div>
+    );
+  }
+  return (
+    <div className="page">
+      <header className="page-header">
+        <span className="eyebrow">Planned: {item.phase}</span>
+        <h1>{item.label}</h1>
+        <p>{item.description}</p>
+      </header>
+
+      <EmptyState
+        icon={item.icon}
+        title="Not available yet"
+        description={`${item.label} is planned for ${item.phase}. Nothing on this page processes data yet.`}
+        action={{ href: "/dashboard", label: "Back to dashboard" }}
+      />
+
+      {item.href === "/settings" ? (
+        <p className="section-note">
+          The light and dark theme switch in the top bar already works. Provider and
+          model settings arrive in later phases.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+
+
+===== src\app\(app)\admin\page.tsx =====
+
+import type { Metadata } from "next";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { Suspense } from "react";
+import { EmptyState } from "../../../components/EmptyState";
+import { getAccess } from "../../../lib/auth/session";
+import { getAdminOverview } from "../../../lib/server/adminData";
+import { getCandidates, getStorageState } from "../../../lib/server/keyStore";
+import "./admin.css";
+
+export const metadata: Metadata = {
+  title: "Admin",
+};
+
+function fmtDate(value: string | null): string {
+  const time = value ? Date.parse(value) : Number.NaN;
+  return Number.isNaN(time) ? "-" : new Date(time).toISOString().slice(0, 10);
+}
+
+function fmtTime(value: string | null): string {
+  const time = value ? Date.parse(value) : Number.NaN;
+  return Number.isNaN(time) ? "Never" : `${new Date(time).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+function count(value: number | null): string {
+  return value === null ? "Unavailable" : String(value);
+}
+
+async function AdminContent() {
+  const access = await getAccess();
+
+  if (!access.ok) {
+    if (access.status === 401 || access.code === "not_allowed") {
+      redirect("/login");
+    }
+    return (
+      <div className="page">
+        <EmptyState
+          icon="admin"
+          title="Admin panel unavailable"
+          description={`${access.message} The admin panel needs sign-in and the profiles table to check who is an administrator.`}
+          action={{ href: "/dashboard", label: "Back to dashboard" }}
+        />
+      </div>
+    );
+  }
+
+  if (access.role !== "admin") {
+    return (
+      <div className="page">
+        <EmptyState
+          icon="admin"
+          title="Admins only"
+          description="Your account does not have the admin role. Only an administrator can open this page."
+          action={{ href: "/dashboard", label: "Back to dashboard" }}
+        />
+      </div>
+    );
+  }
+
+  const [overview, gemini] = await Promise.all([
+    getAdminOverview(),
+    getCandidates(access.userId, "gemini"),
+  ]);
+  const storage = getStorageState();
+  const geminiText = gemini.ok
+    ? gemini.source === "store"
+      ? "Available (your saved key)"
+      : "Available (environment key, admin only)"
+    : gemini.message;
+
+  return (
+    <div className="page">
+      <header className="page-header">
+        <span className="eyebrow">Administration</span>
+        <h1>Admin Control Panel</h1>
+        <p>
+          Real status only. If something is not measured, it says so instead of showing a made-up
+          number.
+        </p>
+      </header>
+
+      <section aria-labelledby="ad-session-heading">
+        <div className="section-head">
+          <h2 id="ad-session-heading" className="section-title">
+            Your session
+          </h2>
+        </div>
+        <div className="status-grid">
+          <div className="card status-card">
+            <span className="status-label">Signed in as</span>
+            <span className="ad-value">{access.fullName ?? access.email}</span>
+            <span className="status-detail">{access.email}. Confirmed by Supabase on the server.</span>
+          </div>
+          <div className="card status-card">
+            <span className="status-label">Role</span>
+            <span className="status-pill ad-ok">
+              <span className="status-dot" aria-hidden="true" />
+              Administrator
+            </span>
+            <span className="status-detail">Read from the profiles table. Browsers cannot change it.</span>
+          </div>
+        </div>
+      </section>
+
+      {!overview.ok ? (
+        <section aria-labelledby="ad-error-heading">
+          <div className="section-head">
+            <h2 id="ad-error-heading" className="section-title">
+              Account and usage figures
+            </h2>
+          </div>
+          <EmptyState icon="admin" title="Figures unavailable" description={overview.message} />
+        </section>
+      ) : (
+        <>
+          <section aria-labelledby="ad-accounts-heading">
+            <div className="section-head">
+              <h2 id="ad-accounts-heading" className="section-title">
+                Accounts
+              </h2>
+            </div>
+            <div className="status-grid">
+              <div className="card status-card">
+                <span className="status-label">Total accounts</span>
+                <span className="ad-value">{overview.data.totalUsers}</span>
+                <span className="status-detail">Google accounts registered in Supabase Auth.</span>
+              </div>
+              <div className="card status-card">
+                <span className="status-label">Administrators</span>
+                <span className="ad-value">{overview.data.admins}</span>
+                <span className="status-detail">Accounts with the admin role.</span>
+              </div>
+              <div className="card status-card">
+                <span className="status-label">New in the last 7 days</span>
+                <span className="ad-value">{overview.data.newLast7Days}</span>
+                <span className="status-detail">Counted from account creation dates.</span>
+              </div>
+              <div className="card status-card">
+                <span className="status-label">Signed in during the last 7 days</span>
+                <span className="ad-value">{overview.data.signedInLast7Days}</span>
+                <span className="status-detail">Counted from last sign-in times.</span>
+              </div>
+            </div>
+            {overview.data.truncated ? (
+              <p className="section-note">
+                Figures cover the first {overview.data.users.length} of {overview.data.totalUsers} accounts.
+              </p>
+            ) : null}
+          </section>
+
+          <section aria-labelledby="ad-users-heading">
+            <div className="section-head">
+              <h2 id="ad-users-heading" className="section-title">
+                Users
+              </h2>
+            </div>
+            <div className="card ad-scroll">
+              <table className="ad-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Email</th>
+                    <th scope="col">Role</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Joined</th>
+                    <th scope="col">Last sign-in</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overview.data.users.map((user) => (
+                    <tr key={user.id}>
+                      <th scope="row">{user.name ?? "-"}</th>
+                      <td>{user.email}</td>
+                      <td>{user.role === "admin" ? "Administrator" : "User"}</td>
+                      <td>{user.status}</td>
+                      <td>{fmtDate(user.createdAt)}</td>
+                      <td>{fmtTime(user.lastSignInAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="section-note">
+              Dates are in UTC. Status is read from the database. Suspension is not enforced by the
+              app yet, so changing a status does not block anyone.
+            </p>
+          </section>
+
+          <section aria-labelledby="ad-results-heading">
+            <div className="section-head">
+              <h2 id="ad-results-heading" className="section-title">
+                Saved results
+              </h2>
+            </div>
+            <div className="status-grid">
+              <div className="card status-card">
+                <span className="status-label">Metadata results saved</span>
+                <span className="ad-value">{count(overview.data.history.metadataTotal)}</span>
+                <span className="status-detail">
+                  {count(overview.data.history.metadataWeek)} in the last 7 days.
+                </span>
+              </div>
+              <div className="card status-card">
+                <span className="status-label">Image prompts saved</span>
+                <span className="ad-value">{count(overview.data.history.promptTotal)}</span>
+                <span className="status-detail">
+                  {count(overview.data.history.promptWeek)} in the last 7 days.
+                </span>
+              </div>
+            </div>
+            <p className="section-note">
+              These count successful results saved to History. Total requests and error rates are not
+              recorded, because no usage tracking table exists.
+            </p>
+          </section>
+        </>
+      )}
+
+      <section aria-labelledby="ad-setup-heading">
+        <div className="section-head">
+          <h2 id="ad-setup-heading" className="section-title">
+            Setup status
+          </h2>
+        </div>
+        <div className="status-grid">
+          <div className="card status-card">
+            <span className="status-label">Key storage</span>
+            <span className={`status-pill ${storage.state === "ready" ? "ad-ok" : ""}`}>
+              <span className="status-dot" aria-hidden="true" />
+              {storage.state === "ready" ? "Ready" : "Not ready"}
+            </span>
+            <span className="status-detail">{storage.message}</span>
+          </div>
+          <div className="card status-card">
+            <span className="status-label">Your Gemini key</span>
+            <span className={`status-pill ${gemini.ok ? "ad-ok" : ""}`}>
+              <span className="status-dot" aria-hidden="true" />
+              {gemini.ok ? "Available" : "Not available"}
+            </span>
+            <span className="status-detail">{geminiText}</span>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="ad-providers-heading">
+        <div className="section-head">
+          <h2 id="ad-providers-heading" className="section-title">
+            AI provider keys
+          </h2>
+          <Link href="/settings/api-keys" className="button">
+            Open API Key Manager
+          </Link>
+        </div>
+        {overview.ok && overview.data.providers ? (
+          <div className="card ad-scroll">
+            <table className="ad-table">
+              <thead>
+                <tr>
+                  <th scope="col">Provider</th>
+                  <th scope="col">Saved keys (all users)</th>
+                  <th scope="col">Enabled</th>
+                  <th scope="col">Last request worked</th>
+                  <th scope="col">Users with a key</th>
+                  <th scope="col">Used by tools</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overview.data.providers.map((provider) => (
+                  <tr key={provider.provider}>
+                    <th scope="row">{provider.name}</th>
+                    <td>{provider.saved}</td>
+                    <td>{provider.enabled}</td>
+                    <td>{provider.lastOk}</td>
+                    <td>{provider.owners}</td>
+                    <td>{provider.provider === "gemini" ? "Metadata Generator, Image-to-Prompt" : "Not connected yet"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState
+            icon="key"
+            title="Key counts unavailable"
+            description="The saved key counts could not be read. Check SUPABASE_SERVICE_ROLE_KEY and the api_keys table."
+          />
+        )}
+        <p className="section-note">
+          Counts only. Key values are never shown, and each user manages only their own keys. A saved
+          key is not proof that it works: &quot;Last request worked&quot; comes from real requests.
+        </p>
+      </section>
+    </div>
+  );
+}
+
+export default function AdminPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="page">
+          <p role="status">Loading the admin panel...</p>
+        </div>
+      }
+    >
+      <AdminContent />
+    </Suspense>
+  );
+}
+
+
+===== src\app\(app)\bento-builder\page.tsx =====
+
+import type { Metadata } from "next";
+import { BentoWorkspace } from "../../../components/bento/BentoWorkspace";
+
+export const metadata: Metadata = {
+  title: "Bento Builder",
+};
+
+export default function BentoBuilderPage() {
+  return <BentoWorkspace />;
+}
+
+===== src\app\(app)\calendar\page.tsx =====
+
+import type { Metadata } from "next";
+import { CalendarWorkspace } from "../../../components/calendar/CalendarWorkspace";
+
+export const metadata: Metadata = {
+  title: "Global Event Calendar",
+};
+
+export default function CalendarPage() {
+  return <CalendarWorkspace />;
+}
+
+===== src\app\(app)\dashboard\page.tsx =====
+
+"use client";
+ 
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { createBrowserClient } from "@supabase/ssr";
+ 
+type Row = Record<string, any>;
+type Provider = { id: string; name: string; configured: boolean };
+ 
+// Edit hrefs here if your routes differ (the installer prints your real routes).
+const TOOLS = [
+  { name: "Metadata Generator", desc: "Titles, descriptions and keywords", href: "/dashboard/metadata-generator" },
+  { name: "Image to Prompt", desc: "Detailed prompts from images", href: "/dashboard/image-to-prompt" },
+  { name: "Background Remover", desc: "Cut out subjects cleanly", href: "/dashboard/background-remover" },
+  { name: "Adobe Keywords Search", desc: "Research stock keywords", href: "/dashboard/adobe-keywords" },
+  { name: "Global Event Calendar", desc: "Plan around key events", href: "/dashboard/event-calendar" },
+  { name: "Bento Builder", desc: "Compose bento layouts", href: "/dashboard/bento-builder" },
+  { name: "Image to PSD", desc: "Convert images to layered PSD", href: "/dashboard/image-to-psd" },
+  { name: "AI/EPS to JPG", desc: "Convert vector files to JPG", href: "/dashboard/converter" },
+  { name: "History", desc: "Review past jobs", href: "/dashboard/history" },
+  { name: "API Key Manager", desc: "Manage provider keys", href: "/dashboard/api-keys" },
+];
+ 
+const HISTORY_TABLES = ["history", "jobs"];
+ 
+function getClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!;
+  return createBrowserClient(url, key);
+}
+ 
+function greetingFor(hour: number) {
+  if (hour >= 5 && hour < 12) return "Good Morning";
+  if (hour >= 12 && hour < 17) return "Good Afternoon";
+  if (hour >= 17 && hour < 21) return "Good Evening";
+  return "Good Night";
+}
+ 
+function displayName(user: any) {
+  const m = user?.user_metadata || {};
+  return (
+    m.full_name || m.name || m.display_name ||
+    (user?.email ? String(user.email).split("@")[0] : "there")
+  );
+}
+ 
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+ 
+function rowTitle(r: Row) {
+  return r.file_name || r.filename || r.title || r.name || r.tool || r.type || "Job";
+}
+ 
+export default function DashboardPage() {
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
+  const [greeting, setGreeting] = useState("Hello");
+  const [rows, setRows] = useState<Row[]>([]);
+  const [stats, setStats] = useState({ total: 0, week: 0, today: 0 });
+  const [providers, setProviders] = useState<Provider[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [imgFailed, setImgFailed] = useState(false);
+ 
+  useEffect(() => {
+    setGreeting(greetingFor(new Date().getHours()));
+    let cancelled = false;
+ 
+    (async () => {
+      try {
+        const supabase: any = getClient();
+        const { data } = await supabase.auth.getSession();
+        const session = data?.session;
+        if (!session) {
+          if (!cancelled) setError("Please sign in to see your dashboard.");
+          return;
+        }
+        const u = session.user;
+        if (!cancelled) setUser(u);
+ 
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+ 
+        for (const table of HISTORY_TABLES) {
+          const recent = await supabase
+            .from(table)
+            .select("*")
+            .eq("user_id", u.id)
+            .order("created_at", { ascending: false })
+            .limit(8);
+          if (recent.error) continue;
+ 
+          const count = async (since?: string) => {
+            let q: any = supabase
+              .from(table)
+              .select("*", { count: "exact", head: true })
+              .eq("user_id", u.id);
+            if (since) q = q.gte("created_at", since);
+            const r = await q;
+            return r.count ?? 0;
+          };
+ 
+          const [total, week, today] = await Promise.all([
+            count(),
+            count(weekAgo.toISOString()),
+            count(startOfToday.toISOString()),
+          ]);
+          if (!cancelled) {
+            setRows(recent.data || []);
+            setStats({ total, week, today });
+          }
+          break;
+        }
+ 
+        try {
+          const res = await fetch("/api/dashboard/providers", {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (!cancelled) setProviders(json.providers || []);
+          }
+        } catch {
+          /* provider status stays hidden if the check fails */
+        }
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || "Could not load the dashboard.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+ 
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+ 
+  const name = displayName(user);
+  const avatar = user?.user_metadata?.avatar_url || user?.user_metadata?.picture;
+ 
+  return (
+    <div className="mf">
+      <style>{CSS}</style>
+ 
+      <header className="mf-hero">
+        <div className="mf-hello">
+          <div className="mf-avatar">
+            {avatar && !imgFailed ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={avatar} alt={name} onError={() => setImgFailed(true)} />
+            ) : (
+              <span>{user ? initials(name) : ""}</span>
+            )}
+          </div>
+          <div>
+            <h1>{loading ? "Loading..." : `${greeting}, ${name}`}</h1>
+            <p>Welcome to METAFORGE AI PRO - By FER</p>
+          </div>
+        </div>
+      </header>
+ 
+      {error && <div className="mf-alert">{error}</div>}
+ 
+      <section className="mf-stats">
+        <Stat label="Total jobs" value={stats.total} />
+        <Stat label="Last 7 days" value={stats.week} />
+        <Stat label="Today" value={stats.today} />
+      </section>
+ 
+      <section className="mf-section">
+        <h2>Quick access</h2>
+        <div className="mf-grid">
+          {TOOLS.map((t) => (
+            <Link key={t.name} href={t.href} className="mf-card">
+              <strong>{t.name}</strong>
+              <span>{t.desc}</span>
+            </Link>
+          ))}
+        </div>
+      </section>
+ 
+      <div className="mf-two">
+        <section className="mf-section">
+          <h2>Recent activity</h2>
+          {rows.length === 0 ? (
+            <div className="mf-empty">
+              No activity yet. Run a tool and your recent jobs will show up here.
+            </div>
+          ) : (
+            <ul className="mf-list">
+              {rows.map((r, i) => (
+                <li key={r.id ?? i}>
+                  <div>
+                    <strong>{String(rowTitle(r))}</strong>
+                    <small>
+                      {r.tool || r.type || "Job"}
+                      {r.created_at ? ` · ${new Date(r.created_at).toLocaleString()}` : ""}
+                    </small>
+                  </div>
+                  {r.status && <span className="mf-pill">{String(r.status)}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+ 
+        {providers && (
+          <section className="mf-section">
+            <h2>AI providers</h2>
+            <ul className="mf-list">
+              {providers.map((p) => (
+                <li key={p.id}>
+                  <strong>{p.name}</strong>
+                  <span className={p.configured ? "mf-pill ok" : "mf-pill"}>
+                    {p.configured ? "Server key set" : "No server key"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <small className="mf-note">
+              Shows server-level keys only. Keys you save in the API Key Manager are managed there.
+            </small>
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
+ 
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="mf-stat">
+      <span>{label}</span>
+      <strong>{value.toLocaleString()}</strong>
+    </div>
+  );
+}
+ 
+const CSS = `
+.mf{--bg:#f6f7fb;--card:#fff;--text:#12141c;--muted:#667085;--line:#e4e7ec;--accent:#6d4aff;--ok:#12805c;
+  color:var(--text);background:var(--bg);padding:24px;max-width:1200px;margin:0 auto;border-radius:16px}
+@media (prefers-color-scheme: dark){.mf{--bg:#0e1017;--card:#171a24;--text:#eef0f6;--muted:#98a2b3;--line:#262b3a;--accent:#9b85ff;--ok:#4ade9b}}
+.dark .mf{--bg:#0e1017;--card:#171a24;--text:#eef0f6;--muted:#98a2b3;--line:#262b3a;--accent:#9b85ff;--ok:#4ade9b}
+.mf *{box-sizing:border-box}
+.mf-hero{margin-bottom:20px}
+.mf-hello{display:flex;gap:16px;align-items:center}
+.mf-hello h1{margin:0;font-size:clamp(1.3rem,3vw,1.9rem)}
+.mf-hello p{margin:4px 0 0;color:var(--muted)}
+.mf-avatar{width:56px;height:56px;border-radius:50%;background:var(--accent);color:#fff;display:flex;
+  align-items:center;justify-content:center;font-weight:700;font-size:1.1rem;overflow:hidden;flex:none}
+.mf-avatar img{width:100%;height:100%;object-fit:cover}
+.mf-alert{background:#fff4e5;color:#8a4b00;border:1px solid #ffd9a8;padding:12px 14px;border-radius:10px;margin-bottom:16px}
+.mf-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px}
+.mf-stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:6px}
+.mf-stat span{color:var(--muted);font-size:.85rem}
+.mf-stat strong{font-size:1.8rem}
+.mf-section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.mf-section h2{margin:0 0 12px;font-size:1.05rem}
+.mf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.mf-card{display:flex;flex-direction:column;gap:4px;padding:14px;border:1px solid var(--line);border-radius:10px;
+  text-decoration:none;color:var(--text);transition:border-color .15s,transform .15s}
+.mf-card:hover{border-color:var(--accent);transform:translateY(-1px)}
+.mf-card span{color:var(--muted);font-size:.85rem}
+.mf-two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;align-items:start}
+.mf-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.mf-list li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.mf-list li:last-child{border-bottom:0}
+.mf-list small{display:block;color:var(--muted);margin-top:2px}
+.mf-pill{font-size:.75rem;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.mf-pill.ok{color:var(--ok);border-color:var(--ok)}
+.mf-empty{color:var(--muted);padding:18px;text-align:center;border:1px dashed var(--line);border-radius:10px}
+.mf-note{display:block;color:var(--muted);margin-top:10px}
+@media (max-width:600px){.mf{padding:14px}}
+`;
+
+
+
+===== src\app\(app)\eps-converter\page.tsx =====
+
+import type { Metadata } from "next";
+import { ConverterWorkspace } from "../../../components/converter/ConverterWorkspace";
+
+export const metadata: Metadata = {
+  title: "AI/EPS-to-JPG Converter",
+};
+
+export default function ConverterPage() {
+  return <ConverterWorkspace />;
+}
+
+===== src\app\(app)\help\page.tsx =====
+
+"use client";
+// METAFORGE-HELP-SUPPORT v1
+
+import "./help.css";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  CATEGORIES,
+  HELP_ARTICLES,
+  KNOWN_ROUTES,
+  UNVERIFIED_NOTE,
+  searchArticles,
+  type HelpArticle,
+} from "../../../lib/help-content";
+
+type Feedback = { kind: "success" | "error"; text: string } | null;
+
+const SUPPORT_EMAIL = (process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "").trim();
+const SUPPORT_URL_RAW = (process.env.NEXT_PUBLIC_SUPPORT_URL ?? "").trim();
+const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(SUPPORT_EMAIL);
+
+function safeHttpsUrl(value: string): string | null {
+  if (!value) return null;
+  try {
+    const u = new URL(value);
+    return u.protocol === "https:" ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+const SUPPORT_URL = safeHttpsUrl(SUPPORT_URL_RAW);
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to the legacy method
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+// Contains no API keys, tokens, query strings, file contents or history.
+function buildDiagnostics(): string {
+  let prefs = "unknown";
+  try {
+    prefs =
+      window.localStorage.getItem("metaforge.preferences.v1") !== null
+        ? "saved in this browser"
+        : "not saved (defaults in use)";
+  } catch {
+    prefs = "local storage unavailable";
+  }
+  return [
+    "METAFORGE AI PRO - troubleshooting information",
+    "Generated locally in your browser. Nothing was sent anywhere.",
+    "Time: " + new Date().toISOString(),
+    "Page: " + window.location.pathname,
+    "Browser: " + navigator.userAgent,
+    "Viewport: " + window.innerWidth + "x" + window.innerHeight,
+    "Online: " + (navigator.onLine ? "yes" : "no"),
+    "Saved settings: " + prefs,
+    "Not included: API keys, tokens, passwords, file contents, history.",
+  ].join("\n");
+}
+
+function buildReportTemplate(): string {
+  return [
+    "METAFORGE AI PRO - error report",
+    "",
+    "What I was trying to do:",
+    "",
+    "Which tool/page:",
+    "",
+    "What I expected:",
+    "",
+    "What happened (exact error message):",
+    "",
+    "Steps to reproduce:",
+    "1.",
+    "2.",
+    "3.",
+    "",
+    "File type and approximate size (do not attach private files unless asked):",
+    "",
+    "--- Technical information (generated locally) ---",
+    buildDiagnostics(),
+    "",
+    "Do not paste API keys, passwords or tokens into this report.",
+  ].join("\n");
+}
+
+export default function HelpSupportPage() {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState<Set<string>>(() => new Set());
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [copying, setCopying] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const results = useMemo(() => searchArticles(HELP_ARTICLES, query), [query]);
+  const grouped = useMemo(
+    () =>
+      CATEGORIES.map((c) => ({ category: c, items: results.filter((a) => a.category === c) })).filter(
+        (g) => g.items.length > 0
+      ),
+    [results]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
+  function say(kind: "success" | "error", text: string) {
+    setFeedback({ kind, text });
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setFeedback(null), 6000);
+  }
+
+  function toggle(id: string) {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function expandAll() {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      results.forEach((a) => next.add(a.id));
+      return next;
+    });
+  }
+
+  function collapseAll() {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      results.forEach((a) => next.delete(a.id));
+      return next;
+    });
+  }
+
+  function clearSearch() {
+    setQuery("");
+    searchRef.current?.focus();
+  }
+
+  async function handleCopy(kind: "diagnostics" | "template") {
+    if (copying) return;
+    setCopying(true);
+    try {
+      const text = kind === "diagnostics" ? buildDiagnostics() : buildReportTemplate();
+      const ok = await copyText(text);
+      if (ok) {
+        say("success", "Copied to your clipboard. This only copied text locally; nothing was sent anywhere.");
+      } else {
+        say("error", "Copy failed because the browser blocked clipboard access. Nothing was copied.");
+      }
+    } finally {
+      setCopying(false);
+    }
+  }
+
+  function renderArticle(a: HelpArticle) {
+    const isOpen = open.has(a.id);
+    return (
+      <div key={a.id} className="hlp-item">
+        <h3 className="hlp-item-h">
+          <button
+            type="button"
+            id={a.id + "-btn"}
+            className="hlp-item-btn"
+            aria-expanded={isOpen}
+            aria-controls={a.id + "-panel"}
+            onClick={() => toggle(a.id)}
+          >
+            <span className="hlp-item-text">
+              <span className="hlp-item-title">{a.title}</span>
+              <span className="hlp-item-sum">{a.summary}</span>
+            </span>
+            <span className="hlp-chev" aria-hidden="true">{isOpen ? "-" : "+"}</span>
+          </button>
+        </h3>
+        <div id={a.id + "-panel"} role="region" aria-labelledby={a.id + "-btn"} hidden={!isOpen} className="hlp-panel">
+          {a.body.map((p, i) => (
+            <p key={i} className="hlp-p">{p}</p>
+          ))}
+          {a.steps && a.steps.length > 0 ? (
+            <ol className="hlp-steps">
+              {a.steps.map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ol>
+          ) : null}
+          {!a.verified ? <p className="hlp-unverified">{UNVERIFIED_NOTE}</p> : null}
+          {a.link ? (
+            <p className="hlp-p">
+              <Link href={a.link.path} className="hlp-link">{a.link.label}</Link>
+            </p>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  const hasContact = EMAIL_OK || SUPPORT_URL !== null;
+  const emailBad = SUPPORT_EMAIL !== "" && !EMAIL_OK;
+  const urlBad = SUPPORT_URL_RAW !== "" && SUPPORT_URL === null;
+
+  return (
+    <div className="hlp-page">
+      <header className="hlp-header">
+        <h1 className="hlp-title">Help &amp; Support</h1>
+        <p className="hlp-sub">Guides, answers and troubleshooting for METAFORGE AI PRO.</p>
+      </header>
+
+      <section className="hlp-card" aria-labelledby="hlp-search-h">
+        <h2 id="hlp-search-h" className="hlp-h2">Search help</h2>
+        <div className="hlp-search-row">
+          <input
+            ref={searchRef}
+            type="search"
+            className="hlp-input"
+            placeholder="Search guides, FAQs and troubleshooting"
+            aria-label="Search help articles"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") clearSearch();
+            }}
+          />
+          <button type="button" className="hlp-btn" onClick={clearSearch} disabled={query === ""}>
+            Clear search
+          </button>
+        </div>
+        <div className="hlp-toolbar">
+          <p className="hlp-count" role="status" aria-live="polite">
+            {results.length} of {HELP_ARTICLES.length} articles
+          </p>
+          <div className="hlp-toolbar-actions">
+            <button type="button" className="hlp-btn" onClick={expandAll} disabled={results.length === 0}>
+              Expand all
+            </button>
+            <button type="button" className="hlp-btn" onClick={collapseAll} disabled={results.length === 0}>
+              Collapse all
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {results.length === 0 ? (
+        <section className="hlp-card hlp-empty" aria-live="polite">
+          <p className="hlp-p">No help articles match &quot;{query}&quot;.</p>
+          <p className="hlp-hint">Try fewer or different words, or clear the search to see everything.</p>
+          <button type="button" className="hlp-btn hlp-btn-primary" onClick={clearSearch}>
+            Clear search
+          </button>
+        </section>
+      ) : (
+        grouped.map((g) => (
+          <section key={g.category} className="hlp-card" aria-labelledby={"hlp-cat-" + g.category.replace(/\s+/g, "-")}>
+            <h2 id={"hlp-cat-" + g.category.replace(/\s+/g, "-")} className="hlp-h2">
+              {g.category} <span className="hlp-hint">({g.items.length})</span>
+            </h2>
+            {g.items.map(renderArticle)}
+          </section>
+        ))
+      )}
+
+      <section className="hlp-card" aria-labelledby="hlp-actions-h">
+        <h2 id="hlp-actions-h" className="hlp-h2">Useful actions</h2>
+        <div className="hlp-actions">
+          <button type="button" className="hlp-btn hlp-btn-primary" onClick={() => handleCopy("diagnostics")} disabled={copying}>
+            Copy troubleshooting information
+          </button>
+          <button type="button" className="hlp-btn" onClick={() => handleCopy("template")} disabled={copying}>
+            Copy error-report template
+          </button>
+          <Link href={KNOWN_ROUTES.settings} className="hlp-btn hlp-btn-link">Open Settings</Link>
+          <Link href={KNOWN_ROUTES.apiKeys} className="hlp-btn hlp-btn-link">Open API Key Manager</Link>
+        </div>
+        <p className="hlp-hint">
+          Copying only places text on your clipboard. It does not check your system and does not send anything to a server.
+        </p>
+        <p className="hlp-feedback" role="status" aria-live="polite">
+          {feedback ? <span className={"hlp-msg hlp-msg-" + feedback.kind}>{feedback.text}</span> : null}
+        </p>
+      </section>
+
+      <section className="hlp-card" aria-labelledby="hlp-contact-h">
+        <h2 id="hlp-contact-h" className="hlp-h2">Contact and support</h2>
+        {hasContact ? (
+          <div className="hlp-actions">
+            {EMAIL_OK ? (
+              <a className="hlp-btn hlp-btn-link" href={"mailto:" + SUPPORT_EMAIL}>
+                Email {SUPPORT_EMAIL}
+              </a>
+            ) : null}
+            {SUPPORT_URL ? (
+              <a className="hlp-btn hlp-btn-link" href={SUPPORT_URL} target="_blank" rel="noopener noreferrer">
+                Open support site
+              </a>
+            ) : null}
+          </div>
+        ) : (
+          <p className="hlp-p">
+            No support contact has been configured for this installation, so there is nothing to contact from here.
+          </p>
+        )}
+        {emailBad ? <p className="hlp-error">The configured support email is not a valid address and is not shown.</p> : null}
+        {urlBad ? <p className="hlp-error">The configured support URL must start with https:// and is not shown.</p> : null}
+        <p className="hlp-hint">
+          Administrators: set NEXT_PUBLIC_SUPPORT_EMAIL and/or NEXT_PUBLIC_SUPPORT_URL (https only) in the environment,
+          then restart or rebuild the app. These values are visible to every visitor, so use public contact details only.
+        </p>
+      </section>
+
+      <section className="hlp-card" aria-labelledby="hlp-privacy-h">
+        <h2 id="hlp-privacy-h" className="hlp-h2">Privacy and safety</h2>
+        <ul className="hlp-list">
+          <li>Copied information never includes API keys, tokens, passwords, file contents or history.</li>
+          <li>Reports are only copied to your clipboard. Nothing is sent to any server from this page.</li>
+          <li>Never paste API keys or passwords into a report, chat or email.</li>
+        </ul>
+      </section>
+    </div>
+  );
+}
+
+===== src\app\(app)\history\page.tsx =====
+
+import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { EmptyState } from "../../../components/EmptyState";
+import { HistoryList } from "../../../components/history/HistoryList";
+import { getCurrentUser } from "../../../lib/server/history";
+import "./history.css";
+
+export const metadata: Metadata = {
+  title: "History",
+};
+
+export default async function HistoryPage() {
+  const who = await getCurrentUser();
+
+  if (!who.configured) {
+    return (
+      <div className="page">
+        <EmptyState
+          icon="history"
+          title="History needs sign-in and the database"
+          description="History is saved per signed-in user in Supabase. Sign-in and the database are not configured, so nothing is saved or shown here."
+          action={{ href: "/dashboard", label: "Back to dashboard" }}
+        />
+      </div>
+    );
+  }
+
+  if (!who.userId) {
+    redirect("/login");
+  }
+
+  return <HistoryList />;
+}
+
+===== src\app\(app)\image-to-prompt\page.tsx =====
+
+import type { Metadata } from "next";
+import { ImageToPromptWorkspace } from "../../../components/image-to-prompt/ImageToPromptWorkspace";
+import "../metadata/metadata.css";
+import "../../../components/metadata/result-rows.css";
+
+export const metadata: Metadata = {
+  title: "Image-to-Prompt",
+};
+
+export default function ImageToPromptPage() {
+  return <ImageToPromptWorkspace />;
+}
+
+===== src\app\(app)\image-to-psd\page.tsx =====
+
+import type { Metadata } from "next";
+import { PsdWorkspace } from "../../../components/psd/PsdWorkspace";
+
+export const metadata: Metadata = {
+  title: "Image-to-PSD",
+};
+
+export default function ImageToPsdPage() {
+  return <PsdWorkspace />;
+}
+
+===== src\app\(app)\metadata\page.tsx =====
+
+import type { Metadata } from "next";
+import { MetadataWorkspace } from "../../../components/metadata/MetadataWorkspace";
+import "./metadata.css";
+import "../../../components/metadata/result-rows.css";
+
+export const metadata: Metadata = {
+  title: "Metadata Generator",
+};
+
+export default function MetadataPage() {
+  return <MetadataWorkspace />;
+}
+
+===== src\app\(app)\settings\api-keys\page.tsx =====
+
+
+import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { ApiKeyManager } from "../../../../components/api-keys/ApiKeyManager";
+import { EmptyState } from "../../../../components/EmptyState";
+import { getAccess } from "../../../../lib/auth/session";
+import "./keys.css";
+
+export const metadata: Metadata = {
+  title: "API Key Manager",
+};
+
+export default async function ApiKeysPage() {
+  // Check authentication and access permissions on the server.
+  const access = await getAccess();
+
+  if (!access.ok) {
+    // Redirect users who are not signed in or are not allowed.
+    if (access.status === 401 || access.code === "not_allowed") {
+      redirect("/login");
+    }
+
+    return (
+      <div className="page">
+        <EmptyState
+          icon="admin"
+          title="API Key Manager unavailable"
+          description={access.message}
+          action={{
+            href: "/dashboard",
+            label: "Back to dashboard",
+          }}
+        />
+      </div>
+    );
+  }
+
+  // ApiKeyManager already contains its own page wrapper.
+  // Return it directly to avoid nesting two .page containers.
+  return <ApiKeyManager />;
+}
+
+
+===== src\app\(app)\settings\page.tsx =====
+
+"use client";
+
+import "./settings.css";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import {
+  DEFAULT_PREFERENCES,
+  IMAGE_FORMATS,
+  LIMITS,
+  PREFERENCES_STORAGE_KEY,
+  PROMPT_DETAILS,
+  clonePreferences,
+  loadPreferences,
+  savePreferences,
+  validatePreferences,
+  type ImageFormat,
+  type LoadStatus,
+  type Preferences,
+  type PromptDetail,
+} from "../../../lib/preferences";
+
+type Feedback = { kind: "success" | "error" | "info"; text: string } | null;
+
+function Badge() {
+  return <span className="stg-badge">Saved locally - not yet read by tools</span>;
+}
+
+function Switch(props: {
+  id: string;
+  label: string;
+  hint: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="stg-row">
+      <div className="stg-row-text">
+        <label htmlFor={props.id} className="stg-label">{props.label}</label>
+        <p id={`${props.id}-hint`} className="stg-hint">{props.hint}</p>
+      </div>
+      <input
+        id={props.id}
+        type="checkbox"
+        role="switch"
+        className="stg-switch"
+        checked={props.checked}
+        disabled={props.disabled}
+        aria-describedby={`${props.id}-hint`}
+        onChange={(e) => props.onChange(e.target.checked)}
+      />
+    </div>
+  );
+}
+
+function NumberField(props: {
+  id: string;
+  label: string;
+  hint: string;
+  value: number;
+  min: number;
+  max: number;
+  disabled?: boolean;
+  error?: string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="stg-field">
+      <label htmlFor={props.id} className="stg-label">{props.label}</label>
+      <input
+        id={props.id}
+        type="number"
+        inputMode="numeric"
+        className="stg-input"
+        min={props.min}
+        max={props.max}
+        step={1}
+        value={Number.isFinite(props.value) ? String(props.value) : ""}
+        disabled={props.disabled}
+        aria-invalid={props.error ? true : undefined}
+        aria-describedby={`${props.id}-hint${props.error ? ` ${props.id}-err` : ""}`}
+        onChange={(e) => props.onChange(e.target.value === "" ? Number.NaN : Number(e.target.value))}
+      />
+      <p id={`${props.id}-hint`} className="stg-hint">{props.hint} ({props.min}-{props.max})</p>
+      {props.error ? <p id={`${props.id}-err`} className="stg-error" role="alert">{props.error}</p> : null}
+    </div>
+  );
+}
+
+export default function SettingsPage() {
+  const [ready, setReady] = useState(false);
+  const [loadStatus, setLoadStatus] = useState<LoadStatus>("default");
+  const [saved, setSaved] = useState<Preferences>(() => clonePreferences(DEFAULT_PREFERENCES));
+  const [draft, setDraft] = useState<Preferences>(() => clonePreferences(DEFAULT_PREFERENCES));
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+
+  useEffect(() => {
+    const result = loadPreferences();
+    setSaved(result.preferences);
+    setDraft(clonePreferences(result.preferences));
+    setLoadStatus(result.status);
+    setReady(true);
+  }, []);
+
+  const errors = useMemo(() => validatePreferences(draft), [draft]);
+  const errorCount = Object.keys(errors).length;
+  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(saved), [draft, saved]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
+
+  function update<K extends keyof Preferences>(section: K, patch: Partial<Preferences[K]>) {
+    setDraft((d) => ({ ...d, [section]: { ...d[section], ...patch } }));
+    setFeedback(null);
+  }
+
+  function handleSave() {
+    if (saving) return;
+    if (errorCount > 0) {
+      setFeedback({ kind: "error", text: `Fix ${errorCount} invalid value${errorCount === 1 ? "" : "s"} before saving.` });
+      return;
+    }
+    setSaving(true);
+    try {
+      const stored = savePreferences(draft);
+      setSaved(stored);
+      setDraft(clonePreferences(stored));
+      setLoadStatus("loaded");
+      setFeedback({ kind: "success", text: "Settings saved in this browser." });
+    } catch (err) {
+      setFeedback({ kind: "error", text: err instanceof Error ? err.message : "Saving failed." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleCancel() {
+    if (!dirty) return;
+    setDraft(clonePreferences(saved));
+    setFeedback({ kind: "info", text: "Unsaved changes discarded. Showing your last saved settings." });
+  }
+
+  function handleReset() {
+    if (saving) return;
+    const message = dirty
+      ? "Reset all settings to defaults? Your unsaved changes and your currently saved settings will be replaced."
+      : "Reset all settings to defaults? Your currently saved settings will be replaced.";
+    if (!window.confirm(message)) return;
+    setSaving(true);
+    try {
+      const stored = savePreferences(clonePreferences(DEFAULT_PREFERENCES));
+      setSaved(stored);
+      setDraft(clonePreferences(stored));
+      setLoadStatus("loaded");
+      setFeedback({ kind: "success", text: "Settings reset to defaults and saved." });
+    } catch (err) {
+      setFeedback({ kind: "error", text: err instanceof Error ? err.message : "Reset failed." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!ready) {
+    return (
+      <div className="stg-page" aria-busy="true">
+        <p className="stg-hint">Loading settings...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="stg-page">
+      <header className="stg-header">
+        <h1 className="stg-title">Settings</h1>
+        <p className="stg-sub">Preferences for METAFORGE AI PRO, stored in this browser only.</p>
+      </header>
+
+      {loadStatus === "recovered" && (
+        <p className="stg-banner stg-banner-warn" role="status">
+          Some saved settings were unreadable or outdated, so defaults are shown for those fields. Nothing is overwritten until you save.
+        </p>
+      )}
+      {loadStatus === "unavailable" && (
+        <p className="stg-banner stg-banner-error" role="alert">
+          This browser is blocking local storage, so settings cannot be saved here.
+        </p>
+      )}
+
+      <p className="stg-banner">
+        Preferences below are saved, but the tools do not read them yet. Each section is labelled until a tool is connected to it.
+      </p>
+
+      <section className="stg-card" aria-labelledby="stg-appearance">
+        <h2 id="stg-appearance" className="stg-h2">Appearance</h2>
+        <p className="stg-hint">
+          Use the theme switch in the top bar to change between light and dark. Settings does not keep a separate theme, so the two can never disagree.
+        </p>
+      </section>
+
+      <section className="stg-card stg-card-disabled" aria-labelledby="stg-provider">
+        <h2 id="stg-provider" className="stg-h2">AI provider and model</h2>
+        <p className="stg-hint">
+          Not available yet. Default provider and model need the application&apos;s real model registry, which this page does not guess at. API keys are managed separately, and none are shown here.
+        </p>
+        <p className="stg-hint">
+          <Link href="/settings/api-keys" className="stg-link">Open API Key Manager</Link>
+        </p>
+      </section>
+
+      <section className="stg-card" aria-labelledby="stg-metadata">
+        <div className="stg-card-head">
+          <h2 id="stg-metadata" className="stg-h2">Metadata Generator</h2>
+          <Badge />
+        </div>
+        <Switch
+          id="stg-title-on"
+          label="Generate titles"
+          hint="Include a title in generated metadata."
+          checked={draft.metadata.generateTitle}
+          onChange={(v) => update("metadata", { generateTitle: v })}
+        />
+        <Switch
+          id="stg-desc-on"
+          label="Generate descriptions"
+          hint="Include a description in generated metadata."
+          checked={draft.metadata.generateDescription}
+          onChange={(v) => update("metadata", { generateDescription: v })}
+        />
+        <Switch
+          id="stg-single-word"
+          label="Prefer single-word keywords"
+          hint="Favour one-word keywords over phrases."
+          checked={draft.metadata.singleWordKeywords}
+          onChange={(v) => update("metadata", { singleWordKeywords: v })}
+        />
+        <div className="stg-grid">
+          <NumberField
+            id="stg-kw-count"
+            label="Keyword count"
+            hint="Default number of keywords"
+            min={LIMITS.keywordCount.min}
+            max={LIMITS.keywordCount.max}
+            value={draft.metadata.keywordCount}
+            error={errors["metadata.keywordCount"]}
+            onChange={(v) => update("metadata", { keywordCount: v })}
+          />
+          <NumberField
+            id="stg-title-len"
+            label="Title max length"
+            hint="Characters"
+            min={LIMITS.titleMaxLength.min}
+            max={LIMITS.titleMaxLength.max}
+            value={draft.metadata.titleMaxLength}
+            disabled={!draft.metadata.generateTitle}
+            error={errors["metadata.titleMaxLength"]}
+            onChange={(v) => update("metadata", { titleMaxLength: v })}
+          />
+          <NumberField
+            id="stg-desc-len"
+            label="Description max length"
+            hint="Characters"
+            min={LIMITS.descriptionMaxLength.min}
+            max={LIMITS.descriptionMaxLength.max}
+            value={draft.metadata.descriptionMaxLength}
+            disabled={!draft.metadata.generateDescription}
+            error={errors["metadata.descriptionMaxLength"]}
+            onChange={(v) => update("metadata", { descriptionMaxLength: v })}
+          />
+        </div>
+      </section>
+
+      <section className="stg-card" aria-labelledby="stg-i2p">
+        <div className="stg-card-head">
+          <h2 id="stg-i2p" className="stg-h2">Image-to-Prompt</h2>
+          <Badge />
+        </div>
+        <div className="stg-field">
+          <label htmlFor="stg-detail" className="stg-label">Prompt detail</label>
+          <select
+            id="stg-detail"
+            className="stg-input stg-select"
+            value={draft.imageToPrompt.detail}
+            onChange={(e) => update("imageToPrompt", { detail: e.target.value as PromptDetail })}
+          >
+            {PROMPT_DETAILS.map((d) => (
+              <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>
+            ))}
+          </select>
+          <p className="stg-hint">How detailed generated prompts should be by default.</p>
+        </div>
+      </section>
+
+      <section className="stg-card" aria-labelledby="stg-image">
+        <div className="stg-card-head">
+          <h2 id="stg-image" className="stg-h2">Image processing</h2>
+          <Badge />
+        </div>
+        <div className="stg-grid">
+          <div className="stg-field">
+            <label htmlFor="stg-format" className="stg-label">Default output format</label>
+            <select
+              id="stg-format"
+              className="stg-input stg-select"
+              value={draft.image.outputFormat}
+              onChange={(e) => update("image", { outputFormat: e.target.value as ImageFormat })}
+            >
+              {IMAGE_FORMATS.map((f) => (
+                <option key={f} value={f}>{f.toUpperCase()}</option>
+              ))}
+            </select>
+          </div>
+          <div className="stg-field">
+            <label htmlFor="stg-quality" className="stg-label">
+              JPG quality: {Number.isFinite(draft.image.jpgQuality) ? draft.image.jpgQuality : "-"}
+            </label>
+            <input
+              id="stg-quality"
+              type="range"
+              className="stg-range"
+              min={LIMITS.jpgQuality.min}
+              max={LIMITS.jpgQuality.max}
+              step={1}
+              value={draft.image.jpgQuality}
+              disabled={draft.image.outputFormat !== "jpg"}
+              onChange={(e) => update("image", { jpgQuality: Number(e.target.value) })}
+            />
+            <p className="stg-hint">Applies when the output format is JPG.</p>
+            {errors["image.jpgQuality"] ? <p className="stg-error" role="alert">{errors["image.jpgQuality"]}</p> : null}
+          </div>
+          <div className="stg-field">
+            <label htmlFor="stg-bg" className="stg-label">Background colour (for JPG)</label>
+            <div className="stg-color-row">
+              <input
+                id="stg-bg"
+                type="color"
+                className="stg-color"
+                value={/^#[0-9a-fA-F]{6}$/.test(draft.image.backgroundColor) ? draft.image.backgroundColor : "#ffffff"}
+                disabled={draft.image.outputFormat !== "jpg"}
+                onChange={(e) => update("image", { backgroundColor: e.target.value.toLowerCase() })}
+              />
+              <code className="stg-code">{draft.image.backgroundColor}</code>
+            </div>
+            <p className="stg-hint">Fills transparent areas when converting to JPG.</p>
+          </div>
+        </div>
+        <Switch
+          id="stg-aspect"
+          label="Preserve aspect ratio"
+          hint="Keep the original proportions when resizing."
+          checked={draft.image.preserveAspectRatio}
+          onChange={(v) => update("image", { preserveAspectRatio: v })}
+        />
+      </section>
+
+      <section className="stg-card" aria-labelledby="stg-batch">
+        <div className="stg-card-head">
+          <h2 id="stg-batch" className="stg-h2">Batch processing</h2>
+          <Badge />
+        </div>
+        <NumberField
+          id="stg-batch-size"
+          label="Files processed at once"
+          hint="Lower values use less memory and are safer on large images"
+          min={LIMITS.batchSize.min}
+          max={LIMITS.batchSize.max}
+          value={draft.batch.batchSize}
+          error={errors["batch.batchSize"]}
+          onChange={(v) => update("batch", { batchSize: v })}
+        />
+      </section>
+
+      <section className="stg-card" aria-labelledby="stg-privacy">
+        <h2 id="stg-privacy" className="stg-h2">Privacy and data</h2>
+        <ul className="stg-list">
+          <li>These preferences live in this browser&apos;s local storage under <code className="stg-code">{PREFERENCES_STORAGE_KEY}</code>.</li>
+          <li>They are not sent to a server and do not sync to other devices or browsers.</li>
+          <li>No API keys, tokens or passwords are stored here. Keys are handled only by the API Key Manager.</li>
+          <li>Clearing site data in your browser also clears these preferences.</li>
+          <li>&quot;Reset to defaults&quot; only affects these preferences. It does not touch history, keys or files.</li>
+        </ul>
+      </section>
+
+      <div className="stg-bar" role="group" aria-label="Settings actions">
+        <div className="stg-bar-status" role="status" aria-live="polite">
+          {feedback ? (
+            <span className={`stg-msg stg-msg-${feedback.kind}`}>{feedback.text}</span>
+          ) : dirty ? (
+            <span className="stg-msg stg-msg-warn">Unsaved changes</span>
+          ) : (
+            <span className="stg-msg">All changes saved</span>
+          )}
+        </div>
+        <div className="stg-bar-actions">
+          <button type="button" className="stg-btn stg-btn-ghost" onClick={handleReset} disabled={saving}>
+            Reset to defaults
+          </button>
+          <button type="button" className="stg-btn stg-btn-ghost" onClick={handleCancel} disabled={!dirty || saving}>
+            Cancel
+          </button>
+          <button type="button" className="stg-btn stg-btn-primary" onClick={handleSave} disabled={!dirty || saving}>
+            {saving ? "Saving..." : "Save settings"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+===== src\app\api\adobe-keywords-search\route.ts =====
+
+// METAFORGE-ADOBE-KEYWORDS-SEARCH
+import { randomUUID } from "node:crypto";
+import { getAccess } from "../../../lib/auth/session";
+import { isKnownGeminiModel } from "../../../lib/providers/gemini-models";
+import { generateStrictMetadata } from "../../../lib/server/generateStrictMetadata";
+import { saveHistory } from "../../../lib/server/history";
+import { checkRateLimit } from "../../../lib/server/rateLimit";
+import { cleanFileName, formField, isSameOrigin, jsonError, readUploadedImage } from "../../../lib/server/requestUtils";
+
+export async function POST(request: Request): Promise<Response> {
+  const requestId = randomUUID();
+  if (!isSameOrigin(request)) return jsonError(403, "forbidden", "This request was not allowed.", false, requestId);
+  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const limit = checkRateLimit(`adobe-keywords:${client}`, 30, 60_000);
+  if (!limit.allowed) return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", true, requestId, { "Retry-After": String(limit.retryAfterSeconds) });
+
+  // The user id comes only from the server-verified session, never from the request.
+  const access = await getAccess();
+  if (!access.ok) return jsonError(access.status, access.code, access.message, access.status === 503, requestId);
+
+  let form: FormData;
+  try { form = await request.formData(); } catch { return jsonError(400, "invalid_request", "The upload could not be read.", false, requestId); }
+  const model = formField(form, "model");
+  if (!isKnownGeminiModel(model)) return jsonError(400, "unsupported_model", "Choose a supported Gemini model.", false, requestId);
+  const upload = await readUploadedImage(form, requestId);
+  if (!upload.ok) return upload.response;
+  const generated = await generateStrictMetadata({ userId: access.userId, model, mimeType: upload.mimeType, base64: Buffer.from(upload.bytes).toString("base64"), count: 50 });
+  if (!generated.ok) return jsonError(generated.status, generated.code, generated.message, generated.retryable, requestId, generated.retryAfterSeconds !== null ? { "Retry-After": String(generated.retryAfterSeconds) } : undefined);
+  const seen = new Set<string>();
+  const keywords: string[] = [];
+  for (const raw of generated.data.keywords) { const word = raw.trim(); const key = word.toLocaleLowerCase(); if (word && !seen.has(key)) { seen.add(key); keywords.push(word); } }
+  if (keywords.length !== 50) return jsonError(502, "keyword_validation_failed", `The model returned ${keywords.length} unique keywords instead of 50. Please try again.`, true, requestId);
+  const data = { title: generated.data.title, description: generated.data.description, keywords, warnings: generated.warnings };
+  const saved = await saveHistory(access.userId, { kind: "metadata", fileName: cleanFileName(formField(form, "fileName")), provider: "gemini", model, platform: "adobe-stock", result: data });
+  return Response.json({ success: true, data, provider: "gemini", model, saved, requestId }, { headers: { "Cache-Control": "no-store" } });
+}
+
+===== src\app\api\api-keys\route.ts =====
+
+import { getAccess } from "../../../lib/auth/session";
+import {
+  MAX_KEYS_PER_PROVIDER,
+  PROVIDERS,
+  type ProviderId,
+} from "../../../lib/providers/catalog";
+import {
+  validateApiKey,
+  validateLabel,
+} from "../../../lib/keys/shared";
+import {
+  addKey,
+  getStorageState,
+  listKeys,
+  removeKey,
+  setEnabled,
+} from "../../../lib/server/keyStore";
+import { checkRateLimit } from "../../../lib/server/rateLimit";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type GuardResult =
+  | { ok: true; userId: string }
+  | { ok: false; response: Response };
+
+function reply(
+  body: Record<string, unknown>,
+  status = 200,
+): Response {
+  return Response.json(body, {
+    status,
+    headers: {
+      "Cache-Control": "no-store, private",
+      Pragma: "no-cache",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
+function fail(
+  status: number,
+  code: string,
+  message: string,
+): Response {
+  return reply({ success: false, code, message }, status);
+}
+
+function isSameOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+
+  // Write requests must include a valid Origin header.
+  if (!origin) return false;
+
+  try {
+    const originUrl = new URL(origin);
+    const forwardedHost = request.headers
+      .get("x-forwarded-host")
+      ?.split(",")[0]
+      ?.trim();
+
+    const requestHost =
+      forwardedHost ||
+      request.headers.get("host");
+
+    if (!requestHost) return false;
+
+    return (
+      originUrl.host.toLowerCase() === requestHost.toLowerCase() &&
+      (originUrl.protocol === "https:" ||
+        originUrl.protocol === "http:")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function guard(
+  request: Request,
+  requireSameOrigin = false,
+): Promise<GuardResult> {
+  if (requireSameOrigin && !isSameOrigin(request)) {
+    return {
+      ok: false,
+      response: fail(
+        403,
+        "forbidden",
+        "This request was not allowed.",
+      ),
+    };
+  }
+
+  const client =
+    request.headers
+      .get("x-forwarded-for")
+      ?.split(",")[0]
+      ?.trim() || "local";
+
+  const limit = checkRateLimit(
+    `api-keys:${client}`,
+    120,
+    60_000,
+  );
+
+  if (!limit.allowed) {
+    return {
+      ok: false,
+      response: fail(
+        429,
+        "rate_limited",
+        "Too many requests. Please wait a moment.",
+      ),
+    };
+  }
+
+  try {
+    const access = await getAccess();
+
+    if (!access.ok) {
+      return {
+        ok: false,
+        response: fail(
+          access.status,
+          access.code,
+          access.message,
+        ),
+      };
+    }
+
+    return { ok: true, userId: access.userId };
+  } catch {
+    return {
+      ok: false,
+      response: fail(
+        500,
+        "auth_error",
+        "Authentication could not be verified. Please try again.",
+      ),
+    };
+  }
+}
+
+async function readBody(
+  request: Request,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const value: unknown = await request.json();
+
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value)
+    ) {
+      return null;
+    }
+
+    return value as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function asProviderId(
+  value: unknown,
+): ProviderId | null {
+  if (typeof value !== "string") return null;
+
+  const provider = PROVIDERS.find(
+    (item) => item.id === value,
+  );
+
+  return provider ? (provider.id as ProviderId) : null;
+}
+
+export async function GET(
+  request: Request,
+): Promise<Response> {
+  const checked = await guard(request);
+
+  if (!checked.ok) return checked.response;
+
+  const storage = getStorageState();
+
+  if (storage.state !== "ready") {
+    return reply({
+      success: true,
+      storage,
+      limit: MAX_KEYS_PER_PROVIDER,
+      keys: [],
+    });
+  }
+
+  try {
+    // Only the signed-in user's keys are returned.
+    const keys = await listKeys(checked.userId);
+
+    return reply({
+      success: true,
+      storage,
+      limit: MAX_KEYS_PER_PROVIDER,
+      keys,
+    });
+  } catch {
+    return reply(
+      {
+        success: false,
+        code: "storage_error",
+        message:
+          "Saved keys could not be loaded. Check the Supabase configuration and api_keys table.",
+      },
+      500,
+    );
+  }
+}
+
+export async function POST(
+  request: Request,
+): Promise<Response> {
+  const checked = await guard(request, true);
+
+  if (!checked.ok) return checked.response;
+
+  const body = await readBody(request);
+
+  if (!body) {
+    return fail(
+      400,
+      "invalid_request",
+      "The request body is invalid.",
+    );
+  }
+
+  const provider = asProviderId(body.provider);
+
+  if (!provider) {
+    return fail(
+      400,
+      "invalid_request",
+      "Unknown API provider.",
+    );
+  }
+
+  if (
+    typeof body.label !== "string" ||
+    typeof body.apiKey !== "string"
+  ) {
+    return fail(
+      400,
+      "invalid_request",
+      "A label and API key are required.",
+    );
+  }
+
+  const label = body.label.trim();
+  const apiKey = body.apiKey.trim();
+
+  const problem =
+    validateLabel(label) ??
+    validateApiKey(apiKey);
+
+  if (problem) {
+    return fail(400, "validation_failed", problem);
+  }
+
+  try {
+    const result = await addKey(checked.userId, {
+      provider,
+      label,
+      apiKey,
+    });
+
+    if (!result.ok) {
+      return fail(
+        result.status,
+        result.code,
+        result.message,
+      );
+    }
+
+    // Return only the public, masked key representation.
+    return reply(
+      { success: true, key: result.value },
+      201,
+    );
+  } catch {
+    return fail(
+      500,
+      "storage_error",
+      "The API key could not be saved. Check the server configuration.",
+    );
+  }
+}
+
+export async function PATCH(
+  request: Request,
+): Promise<Response> {
+  const checked = await guard(request, true);
+
+  if (!checked.ok) return checked.response;
+
+  const body = await readBody(request);
+
+  if (
+    !body ||
+    typeof body.id !== "string" ||
+    !ID_PATTERN.test(body.id) ||
+    typeof body.enabled !== "boolean"
+  ) {
+    return fail(
+      400,
+      "invalid_request",
+      "A valid key ID and enabled value are required.",
+    );
+  }
+
+  try {
+    const result = await setEnabled(
+      checked.userId,
+      body.id,
+      body.enabled,
+    );
+
+    if (!result.ok) {
+      return fail(
+        result.status,
+        result.code,
+        result.message,
+      );
+    }
+
+    return reply({
+      success: true,
+      key: result.value,
+    });
+  } catch {
+    return fail(
+      500,
+      "storage_error",
+      "The API key could not be updated.",
+    );
+  }
+}
+
+export async function DELETE(
+  request: Request,
+): Promise<Response> {
+  const checked = await guard(request, true);
+
+  if (!checked.ok) return checked.response;
+
+  const id =
+    new URL(request.url).searchParams.get("id") ?? "";
+
+  if (!ID_PATTERN.test(id)) {
+    return fail(
+      400,
+      "invalid_request",
+      "A valid key ID is required.",
+    );
+  }
+
+  try {
+    const result = await removeKey(
+      checked.userId,
+      id,
+    );
+
+    if (!result.ok) {
+      return fail(
+        result.status,
+        result.code,
+        result.message,
+      );
+    }
+
+    return reply({ success: true });
+  } catch {
+    return fail(
+      500,
+      "storage_error",
+      "The API key could not be removed.",
+    );
+  }
+}
+
+===== src\app\api\convert-eps\route.ts =====
+
+import { execFile, type ExecFileException } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { checkRateLimit } from "../../../lib/server/rateLimit";
+
+// Renders an EPS to a JPEG with Ghostscript. Needs Ghostscript installed on the server.
+// Hosted platforms such as Vercel do not include it. Access still goes through the
+// sign-in proxy, and the request must come from this site.
+
+const MAX_BYTES = 8 * 1024 * 1024;
+const TIMEOUT_MS = 30_000;
+const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+
+type GsOutcome = "ok" | "missing" | "timeout" | "failed";
+
+function reply(status: number, code: string, message: string): Response {
+  return Response.json(
+    { success: false, code, message },
+    { status, headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+function isSameOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) {
+    return true;
+  }
+  try {
+    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+    return host !== null && new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+function looksLikeEps(bytes: Uint8Array): boolean {
+  if (bytes.length >= 4 && bytes[0] === 0xc5 && bytes[1] === 0xd0 && bytes[2] === 0xd3 && bytes[3] === 0xc6) {
+    return true;
+  }
+  return Buffer.from(bytes.subarray(0, 11)).toString("latin1") === "%!PS-Adobe-";
+}
+
+// Keeps the longest side near 3000 pixels so huge artboards cannot exhaust memory.
+function chooseDpi(buffer: Buffer): number {
+  const head = buffer.subarray(0, 131072).toString("latin1");
+  const match = /%%BoundingBox:\s*(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)/.exec(head);
+  if (!match) {
+    return 100;
+  }
+  const width = Math.abs(Number(match[3]) - Number(match[1]));
+  const height = Math.abs(Number(match[4]) - Number(match[2]));
+  const longest = Math.max(width, height, 1);
+  return Math.max(20, Math.min(150, Math.floor((3000 * 72) / longest)));
+}
+
+function candidates(): string[] {
+  const configured = (process.env.GHOSTSCRIPT_PATH ?? "").trim();
+  const defaults = process.platform === "win32" ? ["gswin64c", "gswin32c", "gs"] : ["gs"];
+  return configured ? [configured, ...defaults] : defaults;
+}
+
+function runGhostscript(command: string, args: string[]): Promise<GsOutcome> {
+  return new Promise((resolve) => {
+    execFile(
+      command,
+      args,
+      { timeout: TIMEOUT_MS, killSignal: "SIGKILL", windowsHide: true, maxBuffer: 1024 * 1024 },
+      (error: ExecFileException | null) => {
+        if (!error) {
+          resolve("ok");
+        } else if (error.code === "ENOENT") {
+          resolve("missing");
+        } else if (error.killed) {
+          resolve("timeout");
+        } else {
+          resolve("failed");
+        }
+      },
+    );
+  });
+}
+
+export async function POST(request: Request): Promise<Response> {
+  if (!isSameOrigin(request)) {
+    return reply(403, "forbidden", "This request was not allowed.");
+  }
+
+  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  if (!checkRateLimit(`eps:${client}`, 30, 60_000).allowed) {
+    return reply(429, "rate_limited", "Too many conversions. Please wait a moment.");
+  }
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return reply(400, "invalid_request", "The upload could not be read.");
+  }
+
+  const file = form.get("file");
+  if (file === null || typeof file === "string") {
+    return reply(400, "invalid_request", "No file was uploaded.");
+  }
+  if (file.size === 0) {
+    return reply(400, "invalid_request", "The file is empty.");
+  }
+  if (file.size > MAX_BYTES) {
+    return reply(413, "payload_too_large", "The EPS is larger than 8 MB.");
+  }
+
+  const bytes = Buffer.from(await file.arrayBuffer());
+  if (!looksLikeEps(bytes)) {
+    return reply(400, "invalid_file", "This is not a valid EPS file.");
+  }
+
+  const dir = await mkdtemp(path.join(tmpdir(), "metaforge-eps-"));
+  try {
+    const input = path.join(dir, "input.eps");
+    const output = path.join(dir, "output.jpg");
+    await writeFile(input, bytes);
+
+    const args = [
+      "-dSAFER",
+      "-dBATCH",
+      "-dNOPAUSE",
+      "-dQUIET",
+      "-dEPSCrop",
+      "-sDEVICE=jpeg",
+      "-dJPEGQ=88",
+      "-dGraphicsAlphaBits=4",
+      "-dTextAlphaBits=4",
+      `-r${chooseDpi(bytes)}`,
+      `-sOutputFile=${output}`,
+      input,
+    ];
+
+    let outcome: GsOutcome = "missing";
+    for (const command of candidates()) {
+      outcome = await runGhostscript(command, args);
+      if (outcome !== "missing") {
+        break;
+      }
+    }
+
+    if (outcome === "missing") {
+      return reply(
+        503,
+        "renderer_missing",
+        "EPS conversion needs Ghostscript, which is not installed on this server. Install Ghostscript and restart, or set GHOSTSCRIPT_PATH. Hosted platforms such as Vercel do not include it.",
+      );
+    }
+    if (outcome === "timeout") {
+      return reply(504, "timeout", "Converting this EPS took too long.");
+    }
+    if (outcome === "failed") {
+      return reply(422, "conversion_failed", "This EPS could not be rendered. It may be damaged or use unsupported features.");
+    }
+
+    let jpeg: Buffer;
+    try {
+      jpeg = await readFile(output);
+    } catch {
+      return reply(422, "conversion_failed", "This EPS produced no image.");
+    }
+    if (jpeg.length === 0 || jpeg.length > MAX_OUTPUT_BYTES) {
+      return reply(422, "conversion_failed", "The converted image was empty or too large.");
+    }
+
+    return new Response(new Uint8Array(jpeg), {
+      headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-store" },
+    });
+  } catch {
+    return reply(500, "internal_error", "The conversion failed unexpectedly.");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+===== src\app\api\dashboard\providers\route.ts =====
+
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+ 
+export const dynamic = "force-dynamic";
+ 
+const PROVIDERS = [
+  { id: "gemini", name: "Google Gemini", envs: ["GEMINI_API_KEY", "GOOGLE_API_KEY"] },
+  { id: "openai", name: "OpenAI", envs: ["OPENAI_API_KEY"] },
+  { id: "anthropic", name: "Anthropic Claude", envs: ["ANTHROPIC_API_KEY"] },
+  { id: "xai", name: "xAI Grok", envs: ["XAI_API_KEY"] },
+  { id: "groq", name: "Groq", envs: ["GROQ_API_KEY"] },
+];
+ 
+export async function GET(req: Request) {
+  const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+ 
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !anon) return NextResponse.json({ error: "Server not configured" }, { status: 500 });
+ 
+  const supabase = createClient(url, anon);
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+ 
+  return NextResponse.json({
+    providers: PROVIDERS.map((p) => ({
+      id: p.id,
+      name: p.name,
+      configured: p.envs.some((e) => !!process.env[e]),
+    })),
+  });
+}
+
+
+===== src\app\api\generate-metadata\route.ts =====
+
+import { randomUUID } from "node:crypto";
+import { getAccess } from "../../../lib/auth/session";
+import {
+  effectiveKeywordCount,
+  getPlatformProfile,
+  isPlatformId,
+} from "../../../lib/platforms/profiles";
+import { isKnownGeminiModel } from "../../../lib/providers/gemini-models";
+import { generateStrictMetadata } from "../../../lib/server/generateStrictMetadata";
+import { saveHistory } from "../../../lib/server/history";
+import { checkRateLimit } from "../../../lib/server/rateLimit";
+import {
+  cleanFileName,
+  formField,
+  isSameOrigin,
+  jsonError,
+  readUploadedImage,
+} from "../../../lib/server/requestUtils";
+
+const RATE_LIMIT_PER_MINUTE = 120;
+
+export async function POST(request: Request): Promise<Response> {
+  const requestId = randomUUID();
+
+  if (!isSameOrigin(request)) {
+    return jsonError(403, "forbidden", "This request was not allowed.", false, requestId);
+  }
+
+  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const limit = checkRateLimit(`generate:${client}`, RATE_LIMIT_PER_MINUTE, 60_000);
+  if (!limit.allowed) {
+    return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", true, requestId, {
+      "Retry-After": String(limit.retryAfterSeconds),
+    });
+  }
+
+  // The user id comes only from the server-verified session, never from the request.
+  const access = await getAccess();
+  if (!access.ok) {
+    return jsonError(access.status, access.code, access.message, access.status === 503, requestId);
+  }
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return jsonError(400, "invalid_request", "The upload could not be read.", false, requestId);
+  }
+
+  const model = formField(form, "model");
+  const platform = formField(form, "platform");
+  const requested = Number(formField(form, "keywordCount"));
+
+  if (formField(form, "provider") !== "gemini") {
+    return jsonError(400, "unsupported_provider", "Only Google Gemini is connected so far.", false, requestId);
+  }
+  if (!isKnownGeminiModel(model)) {
+    return jsonError(400, "unsupported_model", "That model is not in the supported list.", false, requestId);
+  }
+  if (!isPlatformId(platform)) {
+    return jsonError(400, "invalid_request", "Unknown platform.", false, requestId);
+  }
+  if (!Number.isInteger(requested) || requested < 1 || requested > 50) {
+    return jsonError(400, "invalid_request", "The keyword count must be a whole number from 1 to 50.", false, requestId);
+  }
+
+  const upload = await readUploadedImage(form, requestId);
+  if (!upload.ok) {
+    return upload.response;
+  }
+
+  const profile = getPlatformProfile(platform);
+  const count = effectiveKeywordCount(profile, requested);
+
+  const generated = await generateStrictMetadata({
+    userId: access.userId,
+    model,
+    mimeType: upload.mimeType,
+    base64: Buffer.from(upload.bytes).toString("base64"),
+    count,
+  });
+
+  if (!generated.ok) {
+    return jsonError(
+      generated.status,
+      generated.code,
+      generated.message,
+      generated.retryable,
+      requestId,
+      generated.retryAfterSeconds !== null
+        ? { "Retry-After": String(generated.retryAfterSeconds) }
+        : undefined,
+    );
+  }
+
+  const { title, description, keywords } = generated.data;
+  const warnings = generated.warnings;
+
+  const saved = await saveHistory(access.userId, {
+    kind: "metadata",
+    fileName: cleanFileName(formField(form, "fileName")),
+    provider: "gemini",
+    model,
+    platform: profile.id,
+    result: { title, description, keywords, warnings },
+  });
+
+  return Response.json(
+    {
+      success: true,
+      data: {
+        title,
+        description,
+        keywords: keywords.join(", "), // CHECK: use `keywords` (array) if the UI expects an array
+        warnings,
+      },
+      keywordTarget: count,
+      provider: "gemini",
+      model,
+      platform: profile.id,
+      saved,
+      requestId,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+===== src\app\api\generate-prompt\route.ts =====
+
+import { randomUUID } from "node:crypto";
+import { getAccess } from "../../../lib/auth/session";
+import {
+  buildPromptRequest,
+  buildPromptSchema,
+  getPromptDetail,
+  getPromptStyle,
+  isPromptDetailId,
+  isPromptStyleId,
+  normalizePrompt,
+} from "../../../lib/prompt/generation";
+import { isKnownGeminiModel } from "../../../lib/providers/gemini-models";
+import { saveHistory } from "../../../lib/server/history";
+import { checkRateLimit } from "../../../lib/server/rateLimit";
+import {
+  cleanFileName,
+  formField,
+  isSameOrigin,
+  jsonError,
+  readUploadedImage,
+} from "../../../lib/server/requestUtils";
+import { runGeminiWithKeys } from "../../../lib/server/runGemini";
+
+const RATE_LIMIT_PER_MINUTE = 120;
+
+export async function POST(request: Request): Promise<Response> {
+  const requestId = randomUUID();
+
+  if (!isSameOrigin(request)) {
+    return jsonError(403, "forbidden", "This request was not allowed.", false, requestId);
+  }
+
+  const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const limit = checkRateLimit(`generate:${client}`, RATE_LIMIT_PER_MINUTE, 60_000);
+  if (!limit.allowed) {
+    return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", true, requestId, {
+      "Retry-After": String(limit.retryAfterSeconds),
+    });
+  }
+
+  // The user id comes only from the server-verified session, never from the request.
+  const access = await getAccess();
+  if (!access.ok) {
+    return jsonError(access.status, access.code, access.message, access.status === 503, requestId);
+  }
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return jsonError(400, "invalid_request", "The upload could not be read.", false, requestId);
+  }
+
+  const model = formField(form, "model");
+  const styleId = formField(form, "style");
+  const detailId = formField(form, "detail");
+
+  if (formField(form, "provider") !== "gemini") {
+    return jsonError(400, "unsupported_provider", "Only Google Gemini is connected so far.", false, requestId);
+  }
+  if (!isKnownGeminiModel(model)) {
+    return jsonError(400, "unsupported_model", "That model is not in the supported list.", false, requestId);
+  }
+  if (!isPromptStyleId(styleId) || !isPromptDetailId(detailId)) {
+    return jsonError(400, "invalid_request", "Unknown prompt style or detail level.", false, requestId);
+  }
+
+  const upload = await readUploadedImage(form, requestId);
+  if (!upload.ok) {
+    return upload.response;
+  }
+
+  const style = getPromptStyle(styleId);
+  const detail = getPromptDetail(detailId);
+
+  const run = await runGeminiWithKeys({
+    userId: access.userId,
+    model,
+    mimeType: upload.mimeType,
+    base64: Buffer.from(upload.bytes).toString("base64"),
+    prompt: buildPromptRequest(style, detail),
+    schema: buildPromptSchema(),
+    keywordMax: 1,
+  });
+
+  if (!run.ok) {
+    return jsonError(
+      run.status,
+      run.code,
+      run.message,
+      run.retryable,
+      requestId,
+      run.retryAfterSeconds !== null ? { "Retry-After": String(run.retryAfterSeconds) } : undefined,
+    );
+  }
+
+  const normalized = normalizePrompt(run.raw, detail);
+  if (!normalized.ok) {
+    return jsonError(502, "bad_response", `${normalized.message} Try again.`, true, requestId);
+  }
+
+  const saved = await saveHistory(access.userId, {
+    kind: "prompt",
+    fileName: cleanFileName(formField(form, "fileName")),
+    provider: "gemini",
+    model,
+    platform: null,
+    result: { prompt: normalized.prompt, style: style.id, detail: detail.id },
+  });
+
+  return Response.json(
+    {
+      success: true,
+      data: { prompt: normalized.prompt, warnings: normalized.warnings },
+      provider: "gemini",
+      model,
+      saved,
+      requestId,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+===== src\app\api\history\route.ts =====
+
+import { HISTORY_PAGE_SIZE, HistoryError, deleteHistory, getCurrentUser, listHistory, type HistoryKind } from "../../../lib/server/history";
+
+const ID_PATTERN = /^[0-9a-fA-F-]{36}$/;
+
+function reply(body: Record<string, unknown>, status = 200): Response {
+  return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+}
+
+function fail(status: number, code: string, message: string): Response {
+  return reply({ success: false, code, message }, status);
+}
+
+function isSameOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) {
+    return true;
+  }
+  try {
+    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+    return host === null ? true : new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+export async function GET(request: Request): Promise<Response> {
+  const who = await getCurrentUser();
+  if (!who.configured) {
+    return fail(503, "auth_not_configured", "History needs sign-in and the database, which are not configured.");
+  }
+  if (!who.userId) {
+    return fail(401, "unauthenticated", "Please sign in.");
+  }
+
+  const params = new URL(request.url).searchParams;
+  const page = Number(params.get("page") ?? "1");
+  if (!Number.isInteger(page) || page < 1 || page > 1000) {
+    return fail(400, "invalid_request", "Invalid page number.");
+  }
+  const kindParam = params.get("kind");
+  if (kindParam !== null && kindParam !== "metadata" && kindParam !== "prompt") {
+    return fail(400, "invalid_request", "Invalid history type.");
+  }
+  const kind: HistoryKind | null = kindParam;
+
+  try {
+    const { entries, total } = await listHistory(who.userId, { kind, page });
+    return reply({ success: true, entries, total, page, pageSize: HISTORY_PAGE_SIZE });
+  } catch (error) {
+    if (error instanceof HistoryError) {
+      return fail(500, "history_unavailable", "History could not be read. Check that the history SQL was run in Supabase.");
+    }
+    return fail(500, "internal_error", "Something went wrong. Please try again.");
+  }
+}
+
+export async function DELETE(request: Request): Promise<Response> {
+  if (!isSameOrigin(request)) {
+    return fail(403, "forbidden", "This request was not allowed.");
+  }
+
+  const who = await getCurrentUser();
+  if (!who.configured) {
+    return fail(503, "auth_not_configured", "History needs sign-in and the database, which are not configured.");
+  }
+  if (!who.userId) {
+    return fail(401, "unauthenticated", "Please sign in.");
+  }
+
+  const id = new URL(request.url).searchParams.get("id") ?? "";
+  if (!ID_PATTERN.test(id)) {
+    return fail(400, "invalid_request", "A valid entry id is required.");
+  }
+
+  try {
+    const removed = await deleteHistory(who.userId, id);
+    if (!removed) {
+      return fail(404, "not_found", "That entry no longer exists.");
+    }
+    return reply({ success: true });
+  } catch {
+    return fail(500, "history_unavailable", "The entry could not be deleted. Try again.");
+  }
+}
+
+===== src\app\api\provider-status\route.ts =====
+
+import { getAccess } from "../../../lib/auth/session";
+import { getCandidates } from "../../../lib/server/keyStore";
+
+// Returns only yes/no for the SIGNED-IN user. Never returns a key, a secret, a key id,
+// a label, or anything about another user's keys.
+// The user id comes only from the server-verified session (getAccess), never from the request.
+
+const NO_STORE = { "Cache-Control": "no-store" };
+
+export async function GET(): Promise<Response> {
+  const access = await getAccess();
+
+  if (!access.ok) {
+    return Response.json(
+      {
+        success: false,
+        code: access.code,
+        message: access.message,
+        gemini: { configured: false },
+      },
+      { status: access.status, headers: NO_STORE },
+    );
+  }
+
+  const result = await getCandidates(access.userId, "gemini");
+
+  // "All keys disabled" still counts as configured here, so the generators let the
+  // request through and the server answers with the precise reason.
+  const configured = result.ok || result.code === "no_enabled_key";
+
+  return Response.json({ gemini: { configured } }, { headers: NO_STORE });
+}
+
+===== src\app\auth\callback\route.ts =====
+
+import { NextResponse } from "next/server";
+import { createClient } from "../../../lib/supabase/server";
+
+export async function GET(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+
+  if (url.searchParams.get("error") || !code) {
+    return NextResponse.redirect(`${url.origin}/login?error=cancelled`);
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) {
+    return NextResponse.redirect(`${url.origin}/login?error=oauth`);
+  }
+  // Fixed destination, so there is no open redirect.
+  return NextResponse.redirect(`${url.origin}/dashboard`);
+}
+
+===== src\app\auth\google\route.ts =====
+
+import { NextResponse } from "next/server";
+import { getSupabaseEnv } from "../../../lib/supabase/env";
+import { createClient } from "../../../lib/supabase/server";
+
+export async function POST(request: Request): Promise<Response> {
+  const origin = new URL(request.url).origin;
+
+  if (!getSupabaseEnv()) {
+    return NextResponse.redirect(`${origin}/login?error=not_configured`, 303);
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: `${origin}/auth/callback`,
+      queryParams: { prompt: "select_account" },
+    },
+  });
+
+  if (error || !data.url) {
+    return NextResponse.redirect(`${origin}/login?error=oauth`, 303);
+  }
+  return NextResponse.redirect(data.url, 303);
+}
+
+===== src\app\auth\signout\route.ts =====
+
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
+import { getSupabaseEnv } from "../../../lib/supabase/env";
+
+// Signs the person out. The redirect response is created first and the cookie
+// removals are written onto it directly, so the browser always receives them.
+
+export async function POST(request: NextRequest): Promise<Response> {
+  const origin = new URL(request.url).origin;
+  const response = NextResponse.redirect(`${origin}/login`, 303);
+  response.headers.set("Cache-Control", "no-store");
+
+  const env = getSupabaseEnv();
+  if (env) {
+    const supabase = createServerClient(env.url, env.publishableKey, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
+        },
+      },
+    });
+
+    try {
+      // Revokes the session on Supabase and queues the cookie removal.
+      await supabase.auth.signOut();
+    } catch {
+      // The safety net below still clears the browser's cookies.
+    }
+  }
+
+  // Safety net: expire every Supabase session cookie, including chunked ones.
+  for (const cookie of request.cookies.getAll()) {
+    if (cookie.name.startsWith("sb-")) {
+      response.cookies.set(cookie.name, "", { path: "/", maxAge: 0 });
+    }
+  }
+
+  return response;
+}
+
+===== src\app\login\page.tsx =====
+
+import type { Metadata } from "next";
+import { Suspense } from "react";
+import { BrandMark } from "../../components/BrandMark";
+import { getSupabaseEnv } from "../../lib/supabase/env";
+
+export const metadata: Metadata = { title: "Sign in" };
+
+const MESSAGES: Record<string, string> = {
+  not_configured: "Sign-in is not configured on this server.",
+  cancelled: "Sign-in was cancelled or did not finish. Please try again.",
+  oauth: "Google sign-in failed. Please try again.",
+  not_allowed:
+    "This Google account is not approved to use METAFORGE AI PRO yet. Sign in with an approved account or contact the administrator.",
+};
+
+async function LoginError({ params }: { params: Promise<{ error?: string }> }) {
+  const { error } = await params;
+  const text = error ? MESSAGES[error] : undefined;
+  return text ? <p role="alert">{text}</p> : null;
+}
+
+export default function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const configured = getSupabaseEnv() !== null;
+
+  return (
+    <div className="page">
+      <div
+        className="card"
+        style={{
+          maxWidth: 420,
+          margin: "10vh auto",
+          display: "grid",
+          gap: 16,
+          justifyItems: "center",
+          textAlign: "center",
+        }}
+      >
+        <BrandMark size={56} />
+        <h1>METAFORGE AI PRO</h1>
+        <p>Sign in to save your history and use your account.</p>
+        <Suspense fallback={null}>
+          <LoginError params={searchParams} />
+        </Suspense>
+        {configured ? (
+          <form action="/auth/google" method="post">
+            <button type="submit" className="button">
+              Continue with Google
+            </button>
+          </form>
+        ) : (
+          <p>Sign-in is not set up. The Supabase environment variables are missing.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+===== src\app\page.tsx =====
+
+import { redirect } from "next/navigation";
+
+export default function HomePage() {
+  redirect("/dashboard");
+}
+
+===== src\components\metadata\vector.ts =====
+
+
+ // Safe SVG handling: validate SVG markup, rasterize to JPEG, and never load external DTDs.
+const MAX_SVG_BYTES = 5 * 1024 * 1024;
+const FORBIDDEN_TAGS = new Set([
+  "script",
+  "foreignobject",
+  "iframe",
+  "object",
+  "embed",
+  "audio",
+  "video",
+]);
+
+export function isSvgFile(file: File): boolean {
+  return /\.svg$/i.test(file.name);
+}
+
+function fail(file: File, reason: string): Error {
+  return new Error(`${file.name}: ${reason}`);
+}
+
+function parseSize(value: string | null): number | null {
+  if (!value || value.trim().endsWith("%")) return null;
+
+  const number = Number.parseFloat(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+/**
+ * Accept only the standard external SVG 1.1 DOCTYPE used by many vector files.
+ * Remove it before parsing so the browser never needs to resolve an external DTD.
+ * Unknown DOCTYPE declarations and all ENTITY declarations remain forbidden.
+ */
+function sanitizeSvgDeclaration(file: File, source: string): string {
+  let clean = source.replace(/^\uFEFF/, "");
+
+  if (/<!ENTITY\b/i.test(clean)) {
+    throw fail(file, "unsupported SVG (entity declarations are not allowed).");
+  }
+
+  if (/<!DOCTYPE\b/i.test(clean)) {
+    const standardSvgDoctype =
+      /<!DOCTYPE\s+svg\s+PUBLIC\s+(["'])-\/\/W3C\/\/DTD SVG 1\.1\/\/EN\1\s+(["'])https?:\/\/www\.w3\.org\/Graphics\/SVG\/1\.1\/DTD\/svg11\.dtd\2\s*>/i;
+
+    const match = clean.match(standardSvgDoctype);
+
+    if (!match) {
+      throw fail(
+        file,
+        "unsupported SVG (only the standard SVG 1.1 DOCTYPE is accepted).",
+      );
+    }
+
+    clean = clean.replace(match[0], "");
+
+    if (/<!DOCTYPE\b|<!ENTITY\b/i.test(clean)) {
+      throw fail(file, "unsupported SVG (additional XML declarations are not allowed).");
+    }
+  }
+
+  return clean;
+}
+
+function hasUnsafeCssUrl(value: string): boolean {
+  const urls = value.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/gi);
+
+  for (const match of urls) {
+    const target = (match[2] ?? "").trim();
+
+    if (
+      !target.startsWith("#") &&
+      !/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(target)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function checkElementSafety(file: File, root: Element): void {
+  const all = [root, ...Array.from(root.querySelectorAll("*"))];
+
+  for (const element of all) {
+    const tag = element.localName.toLowerCase();
+
+    if (FORBIDDEN_TAGS.has(tag)) {
+      throw fail(file, `unsafe SVG content (<${tag}> is not allowed).`);
+    }
+
+    if (tag === "style") {
+      const css = element.textContent ?? "";
+
+      if (/@import\b/i.test(css) || hasUnsafeCssUrl(css)) {
+        throw fail(file, "unsafe SVG content (external resource in a style).");
+      }
+    }
+
+    for (const attribute of Array.from(element.attributes)) {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value.trim();
+
+      if (name.startsWith("on")) {
+        throw fail(file, "unsafe SVG content (event handler attribute).");
+      }
+
+      if (/javascript\s*:/i.test(value)) {
+        throw fail(file, "unsafe SVG content (script link).");
+      }
+
+      if (name === "href" || name === "xlink:href") {
+        const isLocalReference = value.startsWith("#");
+        const isRasterData =
+          /^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(value);
+
+        if (!isLocalReference && !isRasterData) {
+          throw fail(file, "unsafe SVG content (external link or resource).");
+        }
+      }
+
+      if (name === "style" && hasUnsafeCssUrl(value)) {
+        throw fail(file, "unsafe SVG content (external resource in a style).");
+      }
+    }
+  }
+}
+
+/** Validate SVG markup and set explicit pixel dimensions. */
+function prepareSvgText(
+  file: File,
+  text: string,
+  maxEdge: number,
+): string {
+  if (!Number.isFinite(maxEdge) || maxEdge < 1) {
+    throw fail(file, "invalid image conversion size.");
+  }
+
+  const clean = sanitizeSvgDeclaration(file, text);
+  const doc = new DOMParser().parseFromString(clean, "image/svg+xml");
+
+  if (
+    doc.documentElement.localName.toLowerCase() === "parsererror" ||
+    doc.querySelector("parsererror")
+  ) {
+    throw fail(file, "this is not a valid SVG (the XML is malformed).");
+  }
+
+  const root = doc.documentElement;
+
+  if (
+    root.localName.toLowerCase() !== "svg" ||
+    root.namespaceURI !== "http://www.w3.org/2000/svg"
+  ) {
+    throw fail(file, "this is not a valid SVG image.");
+  }
+
+  checkElementSafety(file, root);
+
+  let width = parseSize(root.getAttribute("width"));
+  let height = parseSize(root.getAttribute("height"));
+
+  const viewBoxValues = (root.getAttribute("viewBox") ?? "")
+    .trim()
+    .split(/[\s,]+/)
+    .map(Number);
+
+  const hasViewBox =
+    viewBoxValues.length === 4 &&
+    viewBoxValues.every(Number.isFinite) &&
+    viewBoxValues[2] > 0 &&
+    viewBoxValues[3] > 0;
+
+  if (hasViewBox) {
+    const viewWidth = viewBoxValues[2];
+    const viewHeight = viewBoxValues[3];
+
+    if (width === null || height === null) {
+      width = viewWidth;
+      height = viewHeight;
+    }
+  } else if (width === null || height === null) {
+    throw fail(file, "the SVG has no usable width, height or viewBox.");
+  } else {
+    root.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  }
+
+  const originalWidth = width as number;
+  const originalHeight = height as number;
+  const scale = Math.min(
+    maxEdge / Math.max(originalWidth, originalHeight),
+    1,
+  );
+
+  root.setAttribute(
+    "width",
+    String(Math.max(1, Math.round(originalWidth * scale))),
+  );
+  root.setAttribute(
+    "height",
+    String(Math.max(1, Math.round(originalHeight * scale))),
+  );
+
+  return new XMLSerializer().serializeToString(root);
+}
+
+export async function rasterizeSvg(
+  file: File,
+  maxEdge: number,
+  quality: number,
+): Promise<Blob> {
+  if (file.size === 0) {
+    throw fail(file, "the file is empty.");
+  }
+
+  if (file.size > MAX_SVG_BYTES) {
+    throw fail(file, "the SVG is larger than 5 MB.");
+  }
+
+  const safeQuality = Math.max(0, Math.min(1, quality));
+  const svgText = prepareSvgText(file, await file.text(), maxEdge);
+  const blobUrl = URL.createObjectURL(
+    new Blob([svgText], { type: "image/svg+xml;charset=utf-8" }),
+  );
+
+  try {
+    const image = new Image();
+
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () =>
+        reject(fail(file, "the browser could not draw this SVG."));
+      image.src = blobUrl;
+    });
+
+    const width = image.naturalWidth;
+    const height = image.naturalHeight;
+
+    if (
+      width < 1 ||
+      height < 1 ||
+      width > maxEdge ||
+      height > maxEdge
+    ) {
+      throw fail(file, "the converted SVG dimensions are invalid.");
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      throw fail(file, "this browser could not prepare the image.");
+    }
+
+    // JPEG has no transparency, so use a white background.
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+
+    const output = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", safeQuality);
+    });
+
+    if (!output) {
+      throw fail(file, "the SVG could not be converted to JPEG.");
+    }
+
+    return output;
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+

@@ -1,4 +1,4 @@
-// Strict metadata rules: title <= 70 chars, one-sentence description <= 180 chars,
+﻿// Strict metadata rules: title <= 70 chars, one-sentence description <= 180 chars,
 // exactly `count` unique keywords (count comes from the UI and platform rules).
 
 export const STRICT_LIMITS = { titleMax: 70, descriptionMax: 180 } as const;
@@ -36,7 +36,7 @@ export function normalizeKeywords(value: unknown): string[] {
     if (keyword.length === 0 || keyword.length > 60) {
       continue;
     }
-    const key = keyword.toLowerCase();
+    const key = keyword.toLocaleLowerCase("en").replace(/[^\p{L}\p{N}]/gu, "");
     if (seen.has(key)) {
       continue;
     }
@@ -118,25 +118,53 @@ export function buildStrictSchema(count: number): Record<string, unknown> {
 
 export function buildStrictPrompt(count: number, problems: string[] = []): string {
   const lines = [
-    "You write stock-image metadata for the single image provided.",
+    "You are an expert stock-image metadata writer. Analyze only the supplied image.",
     "",
-    "Rules:",
-    `- title: one accurate, natural, professional English title, at most ${STRICT_LIMITS.titleMax} characters including spaces. No quotation marks, no label, no promotional language.`,
-    `- description: exactly ONE complete sentence, at most ${STRICT_LIMITS.descriptionMax} characters including spaces, describing the visible subject, composition, background, colors and style. Do not repeat the title.`,
-    `- keywords: an array of EXACTLY ${count} unique English keywords, most important subject and concepts first.`,
-    "- Describe only what is clearly visible. Never invent objects, brands, people or places.",
-    "- Keywords may cover objects, colors, composition, style, background, mood and use cases, and meaningful phrases such as copy space or flat lay are allowed.",
-    "- No duplicates, no trivial variations of the same word, no unrelated filler.",
+    "TITLE QUALITY RULES:",
+    "- Identify the dominant subject, what it is doing, and the most distinctive visible feature.",
+    "- Write a concise, natural, professional English title that a stock-image buyer could search for.",
+    "- Put the strongest subject phrase first; add an action, style, or composition detail only when useful.",
+    "- For a multi-item image, describe the actual collection accurately. Use set, collection, or bundle only when justified.",
+    "- Distinguish similar images by their genuinely visible subjects, actions, arrangement, or attributes.",
+    "- Avoid vague titles such as 'Different Activities', 'Creative Design', or 'Beautiful Illustration'.",
+    "- Avoid keyword-stuffed titles, promotional language, unnecessary repetition, and unsupported claims.",
+    "- Do not infer an exact occupation, identity, material, color, background transparency, or intended use unless visually supported.",
     "",
-    "Return only a JSON object with the fields title, description and keywords.",
+    "KEYWORD QUALITY RULES:",
+    `- Return exactly ${count} distinct, relevant English keywords in an array.`,
+    "- Order keywords by search importance: main subject, specific subject phrase, visible actions, objects, subject attributes, visual style, composition, and relevant concepts.",
+    "- Use specific multi-word search phrases when they add useful meaning, alongside appropriate concise terms.",
+    "- Include singular or plural variants only when they add meaningful search value; do not pad the list with near-duplicates.",
+    "- Do not repeat the same idea using minor wording changes.",
+    "- Avoid generic filler such as 'beautiful', 'amazing', 'best', 'creative', 'design', or 'graphic' unless it adds a specific, accurate meaning.",
+    "- Do not add unrelated seasonal, commercial, emotional, or decorative terms just to reach the requested count.",
+    "- Include color, background, silhouette, vector, icon, isolated object, or copy space only when supported by the visible image.",
+    "- For a collection, include important individual subjects when identifiable, not just the word 'collection'.",
+    "- Never invent objects, activities, locations, brands, people, or technical properties.",
+    "- Every keyword must be useful to someone searching for this particular image.",
+    "",
+    "DESCRIPTION RULES:",
+    `- Write exactly ONE complete English sentence, at most ${STRICT_LIMITS.descriptionMax} characters including spaces.`,
+    "- Describe the visible subject and its meaningful action or arrangement, with relevant style and background details.",
+    "- Do not merely repeat the title or add unsupported details.",
+    "",
+    "OUTPUT RULES:",
+    `- Title: one accurate title, maximum ${STRICT_LIMITS.titleMax} characters including spaces.`,
+    "- Keywords: an array of strings, no numbering, no explanations, no empty entries.",
+    "- Return only a valid JSON object with exactly these fields: title, description, keywords.",
   ];
+
   if (problems.length > 0) {
     lines.push(
       "",
-      "Your previous answer was rejected for these reasons:",
+      "Your previous answer failed validation. Correct every issue:",
       ...problems.map((problem) => `- ${problem}`),
-      `Fix every problem. The keywords array must contain exactly ${count} unique, relevant entries.`,
+      `- Return exactly ${count} unique, relevant keywords.`,
+      `- Keep the title within ${STRICT_LIMITS.titleMax} characters and description within ${STRICT_LIMITS.descriptionMax} characters.`,
     );
   }
+
   return lines.join("\n");
 }
+
+

@@ -1,0 +1,151 @@
+/* Large, full-width result rows for Metadata Generator and Image-to-Prompt.
+   One column on every screen size. Nothing is truncated or clamped.
+   Selectors start with .mw-page so they win over older card styles. */
+
+.mw-page .mw-rc-summary {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.mw-page .mw-rc-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  width: 100%;
+}
+
+.mw-page .mw-rc {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  padding: 22px 24px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 40%, var(--surface));
+}
+
+.mw-page .mw-rc[data-selected="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.mw-page .mw-rc-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.mw-page .mw-rc-name {
+  flex: 1 1 240px;
+  min-width: 0;
+  font-size: 1.02rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.mw-page .mw-rc-badge {
+  flex: none;
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: var(--text-muted);
+}
+
+.mw-page .mw-rc-badge[data-tone="done"] {
+  color: #16a34a;
+  border-color: color-mix(in srgb, #16a34a 55%, var(--border));
+}
+
+.mw-page .mw-rc-badge[data-tone="failed"] {
+  color: #ef4444;
+  border-color: color-mix(in srgb, #ef4444 55%, var(--border));
+}
+
+.mw-page .mw-rc-badge[data-tone="processing"],
+.mw-page .mw-rc-badge[data-tone="queued"] {
+  color: var(--accent-text);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.mw-page .mw-rc-error {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #ef4444 55%, var(--border));
+  background: color-mix(in srgb, #ef4444 8%, var(--surface));
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.mw-page .mw-rc-block {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mw-page .mw-rc-label {
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.mw-page p.mw-rc-text,
+.mw-page textarea.mw-rc-text {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 55%, var(--surface));
+  color: var(--text);
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mw-page textarea.mw-rc-text {
+  min-height: 14rem;
+  resize: vertical;
+}
+
+.mw-page .mw-rc-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.mw-page .mw-rc-count {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.mw-page .mw-rc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .mw-page .mw-rc {
+    padding: 16px;
+  }
+}
