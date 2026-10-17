@@ -1,15 +1,15 @@
-// Browser side of EPS support: checks the file's contents, asks the server to render it
-// to a JPEG, and remembers the result so each file is converted only once.
 
-const MAX_EPS_BYTES = 8 * 1024 * 1024;
+const MAX_EPS_BYTES = 100 * 1024 * 1024;
+const CONVERTER_HOST = "metaforge-eps-converter.onrender.com";
+
 const cache = new WeakMap<File, Promise<Blob>>();
 
-// Conversions run one at a time because Ghostscript is heavy.
 let chain: Promise<unknown> = Promise.resolve();
+
 function enqueue<T>(task: () => Promise<T>): Promise<T> {
-  const run = chain.then(task, task);
-  chain = run.catch(() => undefined);
-  return run;
+  const result = chain.then(task, task);
+  chain = result.catch(() => undefined);
+  return result;
 }
 
 export function isEpsFile(file: File): boolean {
@@ -21,62 +21,152 @@ function fail(file: File, reason: string): Error {
 }
 
 async function looksLikeEps(file: File): Promise<boolean> {
-  const head = new Uint8Array(await file.slice(0, 11).arrayBuffer());
-  if (head.length >= 4 && head[0] === 0xc5 && head[1] === 0xd0 && head[2] === 0xd3 && head[3] === 0xc6) {
-    return true;
+  const header = new Uint8Array(
+    await file.slice(0, 11).arrayBuffer(),
+  );
+
+  const textHeader = new TextDecoder().decode(header);
+
+  return (
+    textHeader.startsWith("%!PS-Adobe-") ||
+    (header.length >= 4 &&
+      header[0] === 0xc5 &&
+      header[1] === 0xd0 &&
+      header[2] === 0xd3 &&
+      header[3] === 0xc6)
+  );
+}
+
+async function readError(response: Response): Promise<string> {
+  const data = await response.json().catch(() => null);
+
+  if (typeof data?.message === "string") {
+    return data.message;
   }
-  return String.fromCharCode(...Array.from(head)) === "%!PS-Adobe-";
+
+  if (typeof data?.detail === "string") {
+    return data.detail;
+  }
+
+  return `Request failed (HTTP ${response.status}).`;
 }
 
 async function run(file: File): Promise<Blob> {
   if (file.size === 0) {
-    throw fail(file, "the file is empty.");
+    throw fail(file, "File is empty.");
   }
+
   if (file.size > MAX_EPS_BYTES) {
-    throw fail(file, "the EPS is larger than 8 MB, which is the conversion limit.");
+    throw fail(file, "File exceeds the 100 MB limit.");
   }
+
   if (!(await looksLikeEps(file))) {
-    throw fail(file, "this is not a valid EPS file (its contents do not start like an EPS).");
+    throw fail(file, "Invalid EPS file.");
+  }
+
+  // Get a short-lived authorization token from the Next.js server.
+  let authResponse: Response;
+
+  try {
+    authResponse = await fetch("/api/eps-upload-token", {
+      method: "GET",
+      cache: "no-store",
+      credentials: "same-origin",
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw fail(file, "Could not contact the authorization service.");
+  }
+
+  if (!authResponse.ok) {
+    throw fail(file, await readError(authResponse));
+  }
+
+  const authData = await authResponse.json().catch(() => null);
+
+  if (
+    !authData ||
+    typeof authData.token !== "string" ||
+    typeof authData.uploadUrl !== "string"
+  ) {
+    throw fail(file, "Invalid converter authorization response.");
+  }
+
+  let uploadUrl: URL;
+
+  try {
+    uploadUrl = new URL(authData.uploadUrl);
+  } catch {
+    throw fail(file, "Invalid converter URL.");
+  }
+
+  // Only send the token to the configured Render converter.
+  if (
+    uploadUrl.protocol !== "https:" ||
+    uploadUrl.hostname !== CONVERTER_HOST ||
+    uploadUrl.pathname.replace(/\/+$/, "") !== "/convert" ||
+    uploadUrl.username ||
+    uploadUrl.password
+  ) {
+    throw fail(file, "Unexpected EPS converter URL.");
   }
 
   const form = new FormData();
-  form.append("file", file, "input.eps");
+  form.append("file", file, file.name);
 
   let response: Response;
+
   try {
-    response = await fetch("/api/convert-eps", {
+    response = await fetch(uploadUrl.toString(), {
       method: "POST",
+      headers: {
+        Authorization: `Bearer ${authData.token}`,
+      },
       body: form,
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(180_000),
     });
   } catch {
-    throw fail(file, "could not reach the server for conversion.");
+    throw fail(
+      file,
+      "Could not reach the EPS converter. Check that the service is running and try again.",
+    );
   }
 
   if (!response.ok) {
-    const payload: unknown = await response.json().catch(() => null);
-    const message =
-      typeof payload === "object" && payload !== null && typeof (payload as { message?: unknown }).message === "string"
-        ? (payload as { message: string }).message
-        : "the conversion failed.";
-    throw fail(file, message);
+    throw fail(file, await readError(response));
   }
 
+  const contentType = response.headers.get("content-type") || "";
   const blob = await response.blob();
-  if (blob.size === 0 || blob.type !== "image/jpeg") {
-    throw fail(file, "the server did not return an image.");
+
+  if (
+    blob.size === 0 ||
+    !contentType.toLowerCase().includes("image/jpeg")
+  ) {
+    throw fail(
+      file,
+      "The converter did not return a valid JPEG preview.",
+    );
   }
+
   return blob;
 }
 
 export function convertEps(file: File): Promise<Blob> {
   const cached = cache.get(file);
+
   if (cached) {
     return cached;
   }
+
   const promise = enqueue(() => run(file));
+
   cache.set(file, promise);
-  // A failed conversion is not remembered, so Retry can try again.
-  promise.catch(() => cache.delete(file));
+
+  // Remove failed conversions from cache so the user can retry.
+  void promise.catch(() => {
+    cache.delete(file);
+  });
+
   return promise;
 }
