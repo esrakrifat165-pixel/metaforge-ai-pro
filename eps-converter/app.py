@@ -9,11 +9,9 @@ from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-
-MAX_BYTES = 8 * 1024 * 1024
-MAX_OUTPUT_BYTES = 8 * 1024 * 1024
-TIMEOUT_SECONDS = 25
-
+MAX_BYTES = 100 * 1024 * 1024
+MAX_OUTPUT_BYTES = 100 * 1024 * 1024
+TIMEOUT_SECONDS = 120
 
 @app.get("/health")
 def health():
